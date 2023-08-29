@@ -43,15 +43,52 @@ class Artist:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.rym_url = rym_url
-        self.name = None
-        self.type = None
-        self.birth_date = None
-        self.formation_date = None
-        self.death_date = None
-        self.disbanded_date = None
-        self.genres = None
-        self.members = None
-        self.akas = None
+        self.name = self._fetch_name()
+        self.type = self._fetch_type()
+        self.birth_date = self._fetch_birth_date()
+        self.formation_date = self._fetch_formation_date()
+        self.death_date = self._fetch_death_date()
+        self.disbanded_date = self._fetch_disbanded_date()
+        self.genres = self._fetch_genres()
+        self.members = self._fetch_members()
+        self.akas = self._fetch_akas()
+
+    def _fetch_name(self):
+        # Fetch and return the artist's name
+        pass
+
+    def _fetch_type(self):
+        # Fetch and return the artist's type (individual, band, etc.)
+        pass
+
+    def _fetch_birth_date(self):
+        # Fetch and return the band's date of formation (if applicable)
+        pass
+
+    def _fetch_formation_date(self):
+        # Fetch and return the band's date of formation (if applicable)
+        pass
+
+    def _fetch_death_date(self):
+        # Fetch and return the artist's date of death (if applicable)
+        pass
+
+    def _fetch_disbanded_date(self):
+        # Fetch and return the date of the band's disbandment (if applicable)
+        pass
+
+    def _fetch_genres(self):
+        # Fetch and return the artist's associated genres
+        pass
+
+    def _fetch_members(self):
+        # Fetch and return the members of the band (if applicable)
+        pass
+
+    def _fetch_akas(self):
+        # Fetch and return the artist's known aliases or alternative names
+        pass
+
 
 class Release:
     def __init__(self, rym_url) -> None:
@@ -63,7 +100,7 @@ class Release:
         self.rym_url = rym_url        
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
-        self.collaboration_symbol = None
+        self._collaboration_symbol = None
         self.year = self._fetch_year()
         self.type = self._fetch_type()
         self.primary_genres = self._fetch_primary_genres()
