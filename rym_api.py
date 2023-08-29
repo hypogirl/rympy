@@ -13,6 +13,24 @@ class InitialRequestFailed(Exception):
     pass
 
 class Artist:
+    def __init__(self, rym_url) -> None:
+        sleep(60)
+        self._cached_rym_response = requests.get(rym_url, headers= headers)
+        if self._cached_rym_response.status_code != 200:
+            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.rym_url = rym_url
+        self.name = None
+        self.type = None
+        self.birth_date = None
+        self.formation_date = None
+        self.death_date = None
+        self.disbanded_date = None
+        self.genres = None
+        self.members = None
+
+
+class CollabArtist:
     pass
 
 class Genre:
@@ -20,19 +38,19 @@ class Genre:
 
 class Release:
     def __init__(self, rym_url) -> None:
+        sleep(60)
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
-        sleep(60)
         self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.rym_url = rym_url        
-        self._title = None
-        self._artists = None
-        self._year = None
-        self._type = None
-        self._primary_genres = None
-        self._secondary_genres = None
-        self._cover_url = None
+        self.title = self._fetch_title()
+        self.artists = self._fetch_artists()
+        self.year = self._fetch_year()
+        self.type = self._fetch_type()
+        self.primary_genres = self._fetch_primary_genres()
+        self.secondary_genres = self._fetch_secondary_genres()
+        self.cover_url = self._fetch_cover_url()
 
     def _fetch_title(self):
         release_title_elem = self._soup.find("div", {"class": "album_title"})
@@ -56,6 +74,9 @@ class Release:
         else:
             release_year = None
         return release_year
+    
+    def _fetch_type(self):
+        return re.findall("Type(\w+)", self.soup.text)[0]
     
     def _fetch_primary_genres(self):
         try:
@@ -93,58 +114,9 @@ class Release:
         else:
             release_links = None
         return release_links
-    
-    def get_title(self):
-        if self._title:
-            return self._title
-        
-        self._title = self._fetch_title()
-        return self._title
-    
-    def get_year(self):
-        if self._year:
-            return self._year
-        
-        self._year = self._fetch_year()
-        return self._year
-    
-    def get_primary_genres(self):
-        if self._primary_genres:
-            return self._primary_genres
-        
-        self._primary_genres = self._fetch_primary_genres()
-        return self._primary_genres
-
-    def get_secondary_genres(self):
-        if self._secondary_genres:
-            return self._secondary_genres
-        
-        self._secondary_genres = self._fetch_secondary_genres()
-        return self._secondary_genres
-
-    def get_cover_url(self):
-        if self._cover_url:
-            return self._cover_url
-        
-        self._cover_url = self._fetch_cover_url()
-        return self._cover_url
-
-    def get_release_type(self):
-        if self._type:
-            return self._type
-        
-        self._type = self._fetch_release_type()
-        return self._type
-
-    def get_release_links(self):
-        if self._release_links:
-            return self._release_links
-        
-        self._release_links = self._fetch_release_links()
-        return self._release_links
 
     def __str__(self):
-        return f"{self.get_artists()} - {self.get_title()} ({self.get_year()})"
+        return f"{self.artists} - {self.title}"
 
     def __eq__(self, other):
         return self.rym_url == other.rym_url
