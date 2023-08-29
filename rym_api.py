@@ -1,5 +1,6 @@
 import requests
 import re
+from typing import List
 from time import sleep
 import json
 from bs4 import BeautifulSoup
@@ -11,6 +12,28 @@ class ParseError(Exception):
 
 class InitialRequestFailed(Exception):
     pass
+
+class Chart:
+    def __init__(self, rym_url) -> None:
+        sleep(60)
+        self._cached_rym_response = requests.get(rym_url, headers= headers)
+        if self._cached_rym_response.status_code != 200:
+            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.elements = None
+
+
+class Genre:
+    def __init__(self, rym_url) -> None:
+        sleep(60)
+        self._cached_rym_response = requests.get(rym_url, headers= headers)
+        if self._cached_rym_response.status_code != 200:
+            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.name = None
+        self.akas = None
+        self.parent_genres = None
+        self.children_genres = None
 
 class Artist:
     def __init__(self, rym_url) -> None:
@@ -28,13 +51,7 @@ class Artist:
         self.disbanded_date = None
         self.genres = None
         self.members = None
-
-
-class CollabArtist:
-    pass
-
-class Genre:
-    pass
+        self.akas = None
 
 class Release:
     def __init__(self, rym_url) -> None:
@@ -46,10 +63,12 @@ class Release:
         self.rym_url = rym_url        
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
+        self.collaboration_symbol = None
         self.year = self._fetch_year()
         self.type = self._fetch_type()
         self.primary_genres = self._fetch_primary_genres()
         self.secondary_genres = self._fetch_secondary_genres()
+        self.descriptors = None
         self.cover_url = self._fetch_cover_url()
 
     def _fetch_title(self):
@@ -76,7 +95,7 @@ class Release:
         return release_year
     
     def _fetch_type(self):
-        return re.findall("Type(\w+)", self.soup.text)[0]
+        return re.findall("Type(\w+)", self._soup.text)[0]
     
     def _fetch_primary_genres(self):
         try:
