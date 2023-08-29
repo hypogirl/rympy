@@ -45,41 +45,54 @@ class Artist:
         self.rym_url = rym_url
         self.name = self._fetch_name()
         self.type = self._fetch_type()
-        self.birth_date = self._fetch_birth_date()
-        self.formation_date = self._fetch_formation_date()
-        self.death_date = self._fetch_death_date()
-        self.disbanded_date = self._fetch_disbanded_date()
+        self.start_date = self._fetch_start_date()
+        self.end_date = self._fetch_end_date()
         self.genres = self._fetch_genres()
         self.members = self._fetch_members()
         self.akas = self._fetch_akas()
 
+    @property
+    def birth_date(self):
+        return self.start_date
+    
+    @property
+    def formation_date(self):
+        return self.start_date
+
+    @property
+    def death_date(self):
+        return self.end_date
+    
+    @property
+    def disbanded_date(self):
+        return self.end_date
+
     def _fetch_name(self):
-        # Fetch and return the artist's name
-        pass
+        try:
+            return self._soup.find("h1", {"class": "artist_name_hdr"}).text
+        except AttributeError:
+            raise ParseError("No artist name was found.")
 
     def _fetch_type(self):
         # Fetch and return the artist's type (individual, band, etc.)
         pass
 
-    def _fetch_birth_date(self):
+    def _fetch_start_date(self):
         # Fetch and return the band's date of formation (if applicable)
         pass
 
-    def _fetch_formation_date(self):
-        # Fetch and return the band's date of formation (if applicable)
-        pass
-
-    def _fetch_death_date(self):
+    def _fetch_end_date(self):
         # Fetch and return the artist's date of death (if applicable)
         pass
 
-    def _fetch_disbanded_date(self):
-        # Fetch and return the date of the band's disbandment (if applicable)
-        pass
-
     def _fetch_genres(self):
-        # Fetch and return the artist's associated genres
-        pass
+        try:
+            genre_div = self._soup.find("div", {"class": "info_hdr"}, string="Genres")
+            genres_elem = genre_div.find_next_sibling()
+        except:
+            return None
+        else:
+            return genres_elem.text
 
     def _fetch_members(self):
         # Fetch and return the members of the band (if applicable)
@@ -105,8 +118,9 @@ class Release:
         self.type = self._fetch_type()
         self.primary_genres = self._fetch_primary_genres()
         self.secondary_genres = self._fetch_secondary_genres()
-        self.descriptors = None
+        self.descriptors = self._fetch_descriptors()
         self.cover_url = self._fetch_cover_url()
+        self._id = self._fetch_id()
 
     def _fetch_title(self):
         release_title_elem = self._soup.find("div", {"class": "album_title"})
@@ -147,6 +161,13 @@ class Release:
         except:
             secondary_genres = None
         return secondary_genres
+    
+    def _fetch_descriptors(self):
+        try:
+            descriptors = self._soup.find("span", {"class": "release_pri_descriptors"}).text
+        except:
+            descriptors = None
+        return descriptors
 
     def _fetch_cover_url(self):
         release_cover_elem = self._soup.find("img")
@@ -170,6 +191,13 @@ class Release:
         else:
             release_links = None
         return release_links
+    
+    def _fetch_id(self):
+        id_elem = self._soup.find("input", {"class": "album_shortcut"})
+        try:
+            return id_elem["value"][1:-1]
+        except TypeError:
+            raise ParseError("No ID was found for this release.")
 
     def __str__(self):
         return f"{self.artists} - {self.title}"
