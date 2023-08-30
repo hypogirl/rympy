@@ -102,7 +102,6 @@ class Artist:
         # Fetch and return the artist's known aliases or alternative names
         pass
 
-
 class Release:
     def __init__(self, rym_url) -> None:
         sleep(60)
@@ -204,3 +203,16 @@ class Release:
 
     def __eq__(self, other):
         return self.rym_url == other.rym_url
+    
+class SimpleEntity:
+    def __init__(self, *, name, rym_url) -> None:
+        self.name = name
+        self.url = rym_url
+
+class SimpleArtist(SimpleEntity):
+    def get_artist(self):
+        return Artist(self.url)
+
+class SimpleRelease(SimpleEntity):
+    def get_release(self):
+        return Release(self.url)
