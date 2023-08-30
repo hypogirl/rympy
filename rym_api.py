@@ -114,8 +114,39 @@ class Artist:
             return genres_elem.text
 
     def _fetch_members(self):
-        # Fetch and return the members of the band (if applicable)
-        pass
+        try:
+            members_div = self._soup.find("div", {"class": "info_hdr"}, string="Members")
+            members_elem = members_div.find_next_sibling()
+        except:
+            return None
+        else:
+            members_elems_list = list(list(members_elem.children)[0].children)
+            members_elems_urls = [member.get("href") for member in members_elems_list if member.get("href")]
+            members_elem_raw = members_elem.text
+            members_name_info = re.findall(r" ?([\w .]+) (?:\[[\w ]+\] )?\(([\w ,-]+)\)", members_elem_raw)
+            members_instrument = {}
+
+            urls_index = 0
+            for name, info in members_name_info:
+                url = None
+                if urls_index < len(members_elems_urls) and members_elems_urls[urls_index].text == name:
+                    url = "https://rateyourmusic.com" + members_elems_urls[urls_index]["href"]
+                    urls_index += 1
+                
+                instruments_list = list()
+                years_active_list = list()
+                for instrument, period in re.findall(r"([a-zA-Z][a-zA-Z ]+)| ?(\d+(?:-\d+))", info):
+                    if instrument:
+                        instruments_list.append(instrument)
+                    elif period:
+                        years_active_list.append(period)
+                
+                members_instrument[name] = {
+                    "instruments": instruments_list,
+                    "years_active": years_active_list,
+                    "url": url
+                }
+
 
     def _fetch_akas(self):
         # Fetch and return the artist's known aliases or alternative names
