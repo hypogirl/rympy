@@ -4,8 +4,10 @@ from typing import List
 from time import sleep
 import json
 from bs4 import BeautifulSoup
+from ratelimit import limits, sleep_and_retry
 
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
+RATE_LIMIT = "1/minute"
 
 class ParseError(Exception):
     pass
@@ -14,8 +16,9 @@ class InitialRequestFailed(Exception):
     pass
 
 class Chart:
+    @sleep_and_retry
+    @limits(calls=RATE_LIMIT)
     def __init__(self, rym_url) -> None:
-        sleep(60)
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
@@ -24,8 +27,9 @@ class Chart:
 
 
 class Genre:
+    @sleep_and_retry
+    @limits(calls=RATE_LIMIT)
     def __init__(self, rym_url) -> None:
-        sleep(60)
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
@@ -36,8 +40,9 @@ class Genre:
         self.children_genres = None
 
 class Artist:
+    @sleep_and_retry
+    @limits(calls=RATE_LIMIT)
     def __init__(self, rym_url) -> None:
-        sleep(60)
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
