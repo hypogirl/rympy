@@ -45,8 +45,13 @@ class Artist:
         self.rym_url = rym_url
         self.name = self._fetch_name()
         self.type = self._fetch_type()
-        self.start_date = self._fetch_start_date()
-        self.end_date = self._fetch_end_date()
+        self._start_date_location = self._fetch_start_date_location()
+        self.start_date = self._start_date_location['date']
+        self.start_location = self._start_date_location['location']
+        self.current_location = self._fetch_current_location()
+        self._end_date_location = self._fetch_end_date_location()
+        self.end_date = self._end_date_location['date']
+        self.end_location = self._end_date_location['location']
         self.genres = self._fetch_genres()
         self.members = self._fetch_members()
         self.akas = self._fetch_akas()
@@ -77,13 +82,27 @@ class Artist:
         # Fetch and return the artist's type (individual, band, etc.)
         pass
 
-    def _fetch_start_date(self):
-        # Fetch and return the band's date of formation (if applicable)
-        pass
+    def _fetch_start_date_location(self):
+        return self._fetch_gen_date_location("Formed", "Born")
 
-    def _fetch_end_date(self):
-        # Fetch and return the artist's date of death (if applicable)
-        pass
+    def _fetch_end_date_location(self):
+        return self._fetch_gen_date_location("Disbanded", "Died")
+    
+    def _fetch_current_location(self):
+        return self._fetch_gen_date_location("Currently") or self.start_date
+
+    def _fetch_gen_date_location(self, *titles):
+        for title in titles:
+            if (gen_elem := self._soup.find("div", {"class": "info_hdr"}, string=title)):
+                gen_info = gen_elem.find_next_sibling().text.split(",")
+                return {
+                    'date': gen_info[0].lstrip(),
+                    'location': [location_info.lstrip() for location_info in gen_info[1:]]
+                }
+        return {
+            'date': None,
+            'location': None
+        }
 
     def _fetch_genres(self):
         try:
