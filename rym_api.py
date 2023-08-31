@@ -152,9 +152,9 @@ class Artist:
                 instruments_list = instruments_list or None
                 years_active_list = years_active_list or None
                 aka = aka or None
-                members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, url=url, aka=aka))
+                members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, rym_url=url, aka=aka))
             
-            return members
+            return members or None
 
     def _fetch_akas(self):
         try:
@@ -163,7 +163,21 @@ class Artist:
         except:
             return None
         else:
-            return aka_elem.text.split(",")
+            akas_text = aka_elem.text.split(",")
+            aka_elems_list = list(list(aka_elem.children)[0].children)
+            aka_elems_urls = [aka for aka in aka_elems_list if isinstance(aka, bs4.Tag) and aka.get("href")]
+            akas = list()
+
+            urls_index = 0
+            for aka in akas_text:
+                url = None
+                if urls_index < len(aka_elems_urls) and aka_elems_urls[urls_index].text == aka:
+                    url = "https://rateyourmusic.com" + aka_elems_urls[urls_index]["href"]
+                    urls_index += 1
+
+                akas.append(SimpleArtist(name=aka, rym_url=url))    
+
+            return akas or None
 
 class Release:
     def __init__(self, rym_url) -> None:
@@ -267,6 +281,7 @@ class Release:
     def __eq__(self, other):
         return self.rym_url == other.rym_url
         
+
 class SimpleEntity:
     def __init__(self, *, name, rym_url) -> None:
         self.name = name
