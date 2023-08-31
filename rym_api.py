@@ -32,15 +32,29 @@ class Chart:
 class Genre:
     @sleep_and_retry
     @limits(calls=RATE_LIMIT)
-    def __init__(self, rym_url) -> None:
+    def __init__(self, rym_url, name=None) -> None:
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.name = None
-        self.akas = None
-        self.parent_genres = None
-        self.children_genres = None
+        self.name = name or self._fetch_name()
+        self.akas = self._fetch_akas()
+        self.parent_genres = self._fetch_parent_genres()
+        self.children_genres = self._fetch_children_genres()
+
+    def _fetch_name(self):
+        try:
+            return self._soup.find("section", {"id": "page_genre_section_name"}).contents[1].text
+        except AttributeError:
+            raise ParseError("No genre name was found.")
+        
+    def _fetch_akas(self):
+        if aka_elems := self._soup.find_all("bdi", class_="comma_separated"):
+            return [aka.text for aka in aka_elems]
+        
+    def _fetch_parent_genres(self):
+        parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
+        [a.contents[1].contents[1]["href"] for a in ]
 
 class Artist:
     @sleep_and_retry
@@ -52,7 +66,7 @@ class Artist:
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.rym_url = rym_url
         self.name = self._fetch_name()
-        self.type = self._fetch_type()
+        #self.type = self._fetch_type()
         self._start_date_location = self._fetch_start_date_location()
         self.start_date = self._start_date_location['date']
         self.start_location = self._start_date_location['location']
@@ -63,6 +77,7 @@ class Artist:
         self.genres = self._fetch_genres()
         self.members = self._fetch_members()
         self.akas = self._fetch_akas()
+        self.notes = self._fetch_notes()
 
     @property
     def birth_date(self):
@@ -85,10 +100,6 @@ class Artist:
             return self._soup.find("h1", {"class": "artist_name_hdr"}).text
         except AttributeError:
             raise ParseError("No artist name was found.")
-
-    def _fetch_type(self):
-        # Fetch and return the artist's type (individual, band, etc.)
-        pass
 
     def _fetch_start_date_location(self):
         return self._fetch_gen_date_location("Formed", "Born")
@@ -128,7 +139,7 @@ class Artist:
         except:
             return None
         else:
-            members_elems_list = list(list(members_elem.children)[0].children)
+            members_elems_list = members_elem.contents[0].contents
             members_elems_urls = [member for member in members_elems_list if isinstance(member, bs4.Tag) and member.get("href")]
             members_elem_raw = members_elem.text
             members_name_info = re.findall(r" ?([\w .]+) (?:\[([\w ]+)\] )?\(([\w ,-]+)\)", members_elem_raw)
@@ -154,7 +165,7 @@ class Artist:
                 aka = aka or None
                 members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, rym_url=url, aka=aka))
             
-            return members or None
+            return members
 
     def _fetch_akas(self):
         try:
@@ -164,7 +175,7 @@ class Artist:
             return None
         else:
             akas_text = aka_elem.text.split(",")
-            aka_elems_list = list(list(aka_elem.children)[0].children)
+            aka_elems_list = aka_elem.contents[0].contents
             aka_elems_urls = [aka for aka in aka_elems_list if isinstance(aka, bs4.Tag) and aka.get("href")]
             akas = list()
 
@@ -177,7 +188,17 @@ class Artist:
 
                 akas.append(SimpleArtist(name=aka, rym_url=url))    
 
-            return akas or None
+            return akas
+        
+    def _fetch_notes(self):
+        try:
+            notes_div = self._soup.find("div", {"class": "info_hdr"}, string="Notes")
+            notes_elem = notes_div.find_next_sibling()
+        except:
+            return None
+        else:
+            return notes_elem.text
+
 
 class Release:
     def __init__(self, rym_url) -> None:
@@ -208,7 +229,7 @@ class Release:
     def _fetch_artists(self):
         release_title_elem = self._soup.find("div", {"class": "album_title"})
         try:
-            artist_name = list(release_title_elem.find("span", {"class": "credited_name"}).children)[0] # this only works for collaborative albums
+            artist_name = release_title_elem.find("span", {"class": "credited_name"}).contents[0] # this only works for collaborative albums
         except:
             artist_name = re.findall(".+\n +\nBy (.+)", release_title_elem.text)[0]
         return artist_name
