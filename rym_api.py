@@ -37,7 +37,6 @@ class Genre:
             raise ValueError("At least one of 'rym_url' or 'name' must be provided.")
         
         self.url = rym_url or f"https://rateyourmusic.com/genre/{name.replace(' ', '-').lower()}/"
-
         self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
@@ -59,15 +58,15 @@ class Genre:
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
-        return [Genre(rym_url= parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems]
+        return [Genre(rym_url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems]
     
     def _fetch_children_genres(self):
-        last_parent = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})[-1]
-        children_elems = last_parent.find_next_sibling().contents[1].contents[3]
+        genre_elem = self._soup.find("li", {"class":"hierarchy_list_item hierarchy_list_item_current"})
+        children_elems = genre_elem.find_next_sibling().contents
         children_genres = list()
-        for child in range(3, len(children_elems), 2):
-            url = child.contents[1].contents[1].contents[1]["href"]
-            name = child.contents[1].contents[1].contents[1].text
+        for i in range(1, len(children_elems), 2):
+            url = "https://rateyourmusic.com" + children_elems[i].contents[1].contents[1].contents[1]["href"]
+            name = children_elems[i].contents[1].contents[1].contents[1].text
             children_genres.append(Genre(rym_url=url, name= name))
         return children_genres
         
