@@ -3,13 +3,16 @@ import re
 from typing import List
 from time import sleep
 import json
-from bs4 import BeautifulSoup
+import bs4
 from ratelimit import limits, sleep_and_retry
 
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-RATE_LIMIT = "1/minute"
+RATE_LIMIT = 60
 
 class ParseError(Exception):
+    pass
+
+class NoURL(Exception):
     pass
 
 class InitialRequestFailed(Exception):
@@ -22,7 +25,7 @@ class Chart:
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
-        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.elements = None
 
 
@@ -33,7 +36,7 @@ class Genre:
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
-        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.name = None
         self.akas = None
         self.parent_genres = None
@@ -46,7 +49,7 @@ class Artist:
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
-        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.rym_url = rym_url
         self.name = self._fetch_name()
         self.type = self._fetch_type()
@@ -126,13 +129,13 @@ class Artist:
             return None
         else:
             members_elems_list = list(list(members_elem.children)[0].children)
-            members_elems_urls = [member.get("href") for member in members_elems_list if member.get("href")]
+            members_elems_urls = [member for member in members_elems_list if isinstance(member, bs4.Tag) and member.get("href")]
             members_elem_raw = members_elem.text
-            members_name_info = re.findall(r" ?([\w .]+) (?:\[[\w ]+\] )?\(([\w ,-]+)\)", members_elem_raw)
-            members_instrument = {}
+            members_name_info = re.findall(r" ?([\w .]+) (?:\[([\w ]+)\] )?\(([\w ,-]+)\)", members_elem_raw)
+            members = list()
 
             urls_index = 0
-            for name, info in members_name_info:
+            for name, aka, info in members_name_info:
                 url = None
                 if urls_index < len(members_elems_urls) and members_elems_urls[urls_index].text == name:
                     url = "https://rateyourmusic.com" + members_elems_urls[urls_index]["href"]
@@ -146,16 +149,21 @@ class Artist:
                     elif period:
                         years_active_list.append(period)
                 
-                members_instrument[name] = {
-                    "instruments": instruments_list,
-                    "years_active": years_active_list,
-                    "url": url
-                }
-
+                instruments_list = instruments_list or None
+                years_active_list = years_active_list or None
+                aka = aka or None
+                members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, url=url, aka=aka))
+            
+            return members
 
     def _fetch_akas(self):
-        # Fetch and return the artist's known aliases or alternative names
-        pass
+        try:
+            aka_div = self._soup.find("div", {"class": "info_hdr"}, string="Also Known As")
+            aka_elem = aka_div.find_next_sibling()
+        except:
+            return None
+        else:
+            return aka_elem.text.split(",")
 
 class Release:
     def __init__(self, rym_url) -> None:
@@ -163,7 +171,7 @@ class Release:
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
-        self._soup = BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.rym_url = rym_url        
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
@@ -258,7 +266,7 @@ class Release:
 
     def __eq__(self, other):
         return self.rym_url == other.rym_url
-    
+        
 class SimpleEntity:
     def __init__(self, *, name, rym_url) -> None:
         self.name = name
@@ -266,8 +274,24 @@ class SimpleEntity:
 
 class SimpleArtist(SimpleEntity):
     def get_artist(self):
-        return Artist(self.url)
+        if self.url:
+            return Artist(self.url)
+        else:
+            raise NoURL("No URL is associated with this artist.")
 
 class SimpleRelease(SimpleEntity):
     def get_release(self):
         return Release(self.url)
+    
+class BandMember(SimpleArtist):
+    def __init__(self, *, name, instruments, years_active, aka, rym_url):
+        super().__init__(name=name, rym_url=rym_url)
+        self.instruments = instruments
+        self.years_active = years_active
+        self.aka = aka
+
+    def get_artist(self):
+        if self.url:
+            return Artist(self.url)
+        else:
+            raise NoURL("No URL is associated with this artist.")
