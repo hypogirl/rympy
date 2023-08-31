@@ -32,8 +32,13 @@ class Chart:
 class Genre:
     @sleep_and_retry
     @limits(calls=RATE_LIMIT)
-    def __init__(self, rym_url, name=None) -> None:
-        self._cached_rym_response = requests.get(rym_url, headers= headers)
+    def __init__(self, rym_url=None, name=None) -> None:
+        if not(rym_url) and not(name):
+            raise ValueError("At least one of 'rym_url' or 'name' must be provided.")
+        
+        self.url = rym_url or f"https://rateyourmusic.com/genre/{name.replace(' ', '-').lower()}/"
+
+        self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -54,7 +59,20 @@ class Genre:
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
-        [a.contents[1].contents[1]["href"] for a in ]
+        return [Genre(rym_url= parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems]
+    
+    def _fetch_children_genres(self):
+        last_parent = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})[-1]
+        children_elems = last_parent.find_next_sibling().contents[1].contents[3]
+        children_genres = list()
+        for child in range(3, len(children_elems), 2):
+            url = child.contents[1].contents[1].contents[1]["href"]
+            name = child.contents[1].contents[1].contents[1].text
+            children_genres.append(Genre(rym_url=url, name= name))
+        return children_genres
+        
+
+
 
 class Artist:
     @sleep_and_retry
