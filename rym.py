@@ -30,6 +30,23 @@ class Chart:
                  languages_excluded=None, descriptors=None,
                  descriptors_excluded=None, include_subgenres=True,
                  contain_all_genres=False) -> None:
+        
+        self.chart_type = chart_type
+        self.release_types = release_types
+        self.year_range = year_range
+        self.primary_genres = primary_genres
+        self.secondary_genres = secondary_genres
+        self.primary_genres_excluded = primary_genres_excluded
+        self.secondary_genres_excluded = secondary_genres_excluded
+        self.countries = countries
+        self.countries_excluded = countries_excluded
+        self.languages = languages
+        self.languages_excluded = languages_excluded
+        self.descriptors = descriptors
+        self.descriptors_excluded = descriptors_excluded
+        self.include_subgenres = include_subgenres
+        self.contain_all_genres = contain_all_genres
+
         self.url = self._fetch_url()
         self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
@@ -65,6 +82,8 @@ class Chart:
                         url+= f",-{',-'.join(field[1])}"
                 elif field[1]:
                     url+= f"/d:-{',-'.join(field[1])}"
+
+        return url
 
         
 
@@ -439,3 +458,109 @@ class ReleaseType:
     musicvideo = "musicvideo"
     djmix = "djmix"
     additional = "addicional"
+
+
+class Language:
+    # ISO 639-1 standard languages
+    afrikaans = "af"
+    albanian = "sq"
+    amharic = "am"
+    arabic = "ar"
+    armenian = "hy"
+    azerbaijani = "az"
+    basque = "eu"
+    belarusian = "be"
+    bengali = "bn"
+    bosnian = "bs"
+    bulgarian = "bg"
+    catalan = "ca"
+    cebuano = "ceb"
+    chinese = "zh"
+    corsican = "co"
+    croatian = "hr"
+    czech = "cs"
+    danish = "da"
+    dutch = "nl"
+    english = "en"
+    esperanto = "eo"
+    estonian = "et"
+    finnish = "fi"
+    french = "fr"
+    frisian = "fy"
+    galician = "gl"
+    georgian = "ka"
+    german = "de"
+    greek = "el"
+    gujarati = "gu"
+    haitian_creole = "ht"
+    hausa = "ha"
+    hawaiian = "haw"
+    hebrew = "he"
+    hindi = "hi"
+    hmong = "hmn"
+    hungarian = "hu"
+    icelandic = "is"
+    igbo = "ig"
+    indonesian = "id"
+    irish = "ga"
+    italian = "it"
+    japanese = "ja"
+    javanese = "jv"
+    kannada = "kn"
+    kazakh = "kk"
+    khmer = "km"
+    kinyarwanda = "rw"
+    korean = "ko"
+    kurdish = "ku"
+    kyrgyz = "ky"
+    lao = "lo"
+    latin = "la"
+    latvian = "lv"
+    lithuanian = "lt"
+    luxembourgish = "lb"
+    macedonian = "mk"
+    malagasy = "mg"
+    malay = "ms"
+    malayalam = "ml"
+    maltese = "mt"
+    maori = "mi"
+    marathi = "mr"
+    mongolian = "mn"
+    burmese = "my"
+    nepali = "ne"
+    norwegian = "no"
+    pashto = "ps"
+    persian = "fa"
+    polish = "pl"
+    portuguese = "pt"
+    punjabi = "pa"
+    romanian = "ro"
+    russian = "ru"
+    samoan = "sm"
+    scots_gaelic = "gd"
+    serbian = "sr"
+    sesotho = "st"
+    shona = "sn"
+    sindhi = "sd"
+    sinhala = "si"
+    slovak = "sk"
+    slovenian = "sl"
+    somali = "so"
+    spanish = "es"
+    sundanese = "su"
+    swahili = "sw"
+    swedish = "sv"
+    tajik = "tg"
+    tamil = "ta"
+    telugu = "te"
+    thai = "th"
+    turkish = "tr"
+    ukrainian = "uk"
+    urdu = "ur"
+    uzbek = "uz"
+    vietnamese = "vi"
+    welsh = "cy"
+    xhosa = "xh"
+    yiddish = "yi"
+    yoruba = "yo"
+    zulu = "zu"
