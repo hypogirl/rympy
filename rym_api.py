@@ -18,7 +18,9 @@ single = "single"
 video = "video"
 unauth = "unauth"
 mixtape = "mixtape"
-musicvideo,djmix,additional
+musicvideo = "musicvideo"
+djmix = "djmix"
+additional = "addicional"
 
 class ParseError(Exception):
     pass
