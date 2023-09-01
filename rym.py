@@ -40,8 +40,24 @@ class Chart:
         self.chart_entries = self._fetch_chart_entries()
 
     def _fetch_url(self):
-        url = f"https://rateyourmusic.com/charts/{self.chart_type}/{self.release}"
+        url = f"https://rateyourmusic.com/charts/{self.chart_type}/{','.join(self.release_types)}"
 
+        if self.year_range:
+            url += f"/{self.year_range.min}-{self.year_range.max}/"
+
+        if self.primary_genres:
+            url += f"/g:{','.join([genre.name for genre in self.primary_genres])}"
+            if self.primary_genres_excluded:
+                url += f",-{',-'.join([genre._url_name for genre in self.primary_genres_excluded])}"
+        elif self.primary_genres_excluded:
+            url += f"/g:-{',-'.join([genre._url_name for genre in self.primary_genres_excluded])}"
+
+        if self.descriptors:
+            url = f"/d:{','.join(self.descriptors)}"
+            if self.descriptors_excluded:
+                url+= f",-{',-'.join(self.descriptors_excluded)}"
+        elif self.descriptors_excluded:
+            url+= f"/d:-{',-'.join(self.descriptors_excluded)}"
 
 class Genre:
     @sleep_and_retry
@@ -49,8 +65,11 @@ class Genre:
     def __init__(self, rym_url=None, name=None) -> None:
         if not rym_url and not name:
             raise ValueError("At least one of 'rym_url' or 'name' must be provided.")
-        
-        self.url = rym_url or f"https://rateyourmusic.com/genre/{name.replace(' ', '-').lower()}/"
+        if name:
+            self._url_name = name.replace(' ', '-').lower()
+        else:
+            self._url_name = rym_url.split("/")[-2]
+        self.url = rym_url or f"https://rateyourmusic.com/genre/{self._url_name}/"
         self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
