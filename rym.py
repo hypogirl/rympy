@@ -10,18 +10,6 @@ headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleW
 CALL_LIMIT = 1
 RATE_LIMIT = 60
 
-#chart variables
-album = "album"
-ep = "ep"
-comp = "comp"
-single = "single"
-video = "video"
-unauth = "unauth"
-mixtape = "mixtape"
-musicvideo = "musicvideo"
-djmix = "djmix"
-additional = "addicional"
-
 class ParseError(Exception):
     pass
 
@@ -411,3 +399,15 @@ class BandMember(SimpleArtist):
         self.instruments = instruments
         self.years_active = years_active
         self.aka = aka
+
+class ReleaseType:
+    album = "album"
+    ep = "ep"
+    comp = "comp"
+    single = "single"
+    video = "video"
+    unauth = "unauth"
+    mixtape = "mixtape"
+    musicvideo = "musicvideo"
+    djmix = "djmix"
+    additional = "addicional"
