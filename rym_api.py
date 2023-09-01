@@ -7,7 +7,18 @@ import bs4
 from ratelimit import limits, sleep_and_retry
 
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
+CALL_LIMIT = 1
 RATE_LIMIT = 60
+
+#chart variables
+album = "album"
+ep = "ep"
+comp = "comp"
+single = "single"
+video = "video"
+unauth = "unauth"
+mixtape = "mixtape"
+musicvideo,djmix,additional
 
 class ParseError(Exception):
     pass
@@ -20,20 +31,33 @@ class InitialRequestFailed(Exception):
 
 class Chart:
     @sleep_and_retry
-    @limits(calls=RATE_LIMIT)
-    def __init__(self, rym_url) -> None:
-        self._cached_rym_response = requests.get(rym_url, headers= headers)
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
+    def __init__(self, *, chart_type, release_types,
+                 year_range=None, primary_genres=None,
+                 secondary_genres=None, primary_genres_excluded=None,
+                 secondary_genres_excluded=None, countries=None,
+                 countries_excluded=None, languages=None,
+                 languages_excluded=None, descriptors=None,
+                 descriptors_excluded=None, include_subgenres=True,
+                 contain_all_genres=False) -> None:
+        self.url = self._fetch_url()
+        self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.elements = None
+        self.current_page = 1
+        self.max_page = self._fetch_max_page()
+        self.chart_entries = self._fetch_chart_entries()
+
+    def _fetch_url(self):
+        url = f"https://rateyourmusic.com/charts/{self.chart_type}/{self.release}"
 
 
 class Genre:
     @sleep_and_retry
-    @limits(calls=RATE_LIMIT)
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, rym_url=None, name=None) -> None:
-        if not(rym_url) and not(name):
+        if not rym_url and not name:
             raise ValueError("At least one of 'rym_url' or 'name' must be provided.")
         
         self.url = rym_url or f"https://rateyourmusic.com/genre/{name.replace(' ', '-').lower()}/"
@@ -41,7 +65,7 @@ class Genre:
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.name = name or self._fetch_name()
+        self.name = self._fetch_name()
         self.akas = self._fetch_akas()
         self.parent_genres = self._fetch_parent_genres()
         self.children_genres = self._fetch_children_genres()
@@ -58,7 +82,7 @@ class Genre:
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
-        return [Genre(rym_url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems]
+        return [SimpleGenre(rym_url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems]
     
     def _fetch_children_genres(self):
         genre_elem = self._soup.find("li", {"class":"hierarchy_list_item hierarchy_list_item_current"})
@@ -67,15 +91,26 @@ class Genre:
         for i in range(1, len(children_elems), 2):
             url = "https://rateyourmusic.com" + children_elems[i].contents[1].contents[1].contents[1]["href"]
             name = children_elems[i].contents[1].contents[1].contents[1].text
-            children_genres.append(Genre(rym_url=url, name= name))
+            children_genres.append(SimpleGenre(rym_url=url, name= name))
         return children_genres
+
+    def __str__(self):
+        return self._get_representation()
+
+    def __repr__(self):
+        return self._get_representation()
+
+    def _get_representation(self):
+        return f"Genre: {self.name}"
+
+    def chart(self, year_range=None):
+        if not year_range:
+            return Chart()
         
-
-
 
 class Artist:
     @sleep_and_retry
-    @limits(calls=RATE_LIMIT)
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, rym_url) -> None:
         self._cached_rym_response = requests.get(rym_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
@@ -125,7 +160,7 @@ class Artist:
         return self._fetch_gen_date_location("Disbanded", "Died")
     
     def _fetch_current_location(self):
-        return self._fetch_gen_date_location("Currently") or self.start_date
+        return self._fetch_gen_date_location("Currently")["location"] or self.start_date
 
     def _fetch_gen_date_location(self, *titles):
         for title in titles:
@@ -215,6 +250,15 @@ class Artist:
             return None
         else:
             return notes_elem.text
+
+    def __str__(self):
+        return self._get_representation()
+
+    def __repr__(self):
+        return self._get_representation()
+
+    def _get_representation(self):
+        return f"Artist: {self.name}"
 
 
 class Release:
@@ -314,16 +358,39 @@ class Release:
             raise ParseError("No ID was found for this release.")
 
     def __str__(self):
-        return f"{self.artists} - {self.title}"
+        return self._get_representation()
+
+    def __repr__(self):
+        return self._get_representation()
+
+    def _get_representation(self):
+        return f"{self.type}: {self.artists} - {self.title}"
 
     def __eq__(self, other):
         return self.rym_url == other.rym_url
-        
+
+class YearRange:
+    def __init__(self, *, min, max) -> None:
+        self.min= min
+        self.max= max
 
 class SimpleEntity:
     def __init__(self, *, name, rym_url) -> None:
         self.name = name
         self.url = rym_url
+
+    def __str__(self):
+        return self._get_representation()
+
+    def __repr__(self):
+        return self._get_representation()
+
+    def _get_representation(self):
+        return f"Simplified: {self.name}"
+
+class SimpleGenre(SimpleEntity):
+    def get_genre(self):
+        return Genre(self.url)
 
 class SimpleArtist(SimpleEntity):
     def get_artist(self):
@@ -342,9 +409,3 @@ class BandMember(SimpleArtist):
         self.instruments = instruments
         self.years_active = years_active
         self.aka = aka
-
-    def get_artist(self):
-        if self.url:
-            return Artist(self.url)
-        else:
-            raise NoURL("No URL is associated with this artist.")
