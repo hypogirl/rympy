@@ -45,19 +45,28 @@ class Chart:
         if self.year_range:
             url += f"/{self.year_range.min}-{self.year_range.max}/"
 
-        if self.primary_genres:
-            url += f"/g:{','.join([genre.name for genre in self.primary_genres])}"
-            if self.primary_genres_excluded:
-                url += f",-{',-'.join([genre._url_name for genre in self.primary_genres_excluded])}"
-        elif self.primary_genres_excluded:
-            url += f"/g:-{',-'.join([genre._url_name for genre in self.primary_genres_excluded])}"
+        for field in [(self.primary_genres, self.primary_genres_excluded, "g"),
+                        (self.descriptors, self.descriptors_excluded, "d"),
+                        (self.secondary_genres, self.secondary_genres_excluded, "s"),
+                        (self.languages, self.languages_excluded, "l"),
+                        (self.location, self.location_excluded, "loc")
+                ]:
+            if field[2] in ["g", "s"]:
+                if field[0]:
+                    url += f"/{field[2]}:{','.join([genre.name for genre in field[0]])}"
+                    if field[1]:
+                        url += f",-{',-'.join([genre._url_name for genre in field[1]])}"
+                elif field[1]:
+                    url += f"/{field[2]}:-{',-'.join([genre._url_name for genre in field[1]])}"
+            else:
+                if field[0]:
+                    url = f"/d:{','.join(field[0])}"
+                    if field[1]:
+                        url+= f",-{',-'.join(field[1])}"
+                elif field[1]:
+                    url+= f"/d:-{',-'.join(field[1])}"
 
-        if self.descriptors:
-            url = f"/d:{','.join(self.descriptors)}"
-            if self.descriptors_excluded:
-                url+= f",-{',-'.join(self.descriptors_excluded)}"
-        elif self.descriptors_excluded:
-            url+= f"/d:-{',-'.join(self.descriptors_excluded)}"
+        
 
 class Genre:
     @sleep_and_retry
