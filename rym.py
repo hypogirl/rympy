@@ -119,7 +119,7 @@ class Genre:
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
-        return [SimpleGenre(rym_url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems]
+        return [SimpleGenre(rym_url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems] or None
     
     def _fetch_children_genres(self):
         genre_elem = self._soup.find("li", {"class":"hierarchy_list_item hierarchy_list_item_current"})
@@ -129,7 +129,7 @@ class Genre:
             url = "https://rateyourmusic.com" + children_elems[i].contents[1].contents[1].contents[1]["href"]
             name = children_elems[i].contents[1].contents[1].contents[1].text
             children_genres.append(SimpleGenre(rym_url=url, name= name))
-        return children_genres
+        return children_genres or None
 
     def __str__(self):
         return self._get_representation()
@@ -219,7 +219,7 @@ class Artist:
         except:
             return None
         else:
-            return genres_elem.text
+            return [SimpleGenre(name=genre.lstrip()) for genre in genres_elem.text.split(",")]
 
     def _fetch_members(self):
         try:
@@ -412,7 +412,7 @@ class YearRange:
         self.max= max
 
 class SimpleEntity:
-    def __init__(self, *, name, rym_url) -> None:
+    def __init__(self, *, name=None, rym_url=None) -> None:
         self.name = name
         self.url = rym_url
 
@@ -427,7 +427,7 @@ class SimpleEntity:
 
 class SimpleGenre(SimpleEntity):
     def get_genre(self):
-        return Genre(self.url)
+        return Genre(self.url, self.name)
 
 class SimpleArtist(SimpleEntity):
     def get_artist(self):
@@ -458,7 +458,6 @@ class ReleaseType:
     musicvideo = "musicvideo"
     djmix = "djmix"
     additional = "addicional"
-
 
 class Language:
     # ISO 639-1 standard languages
