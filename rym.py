@@ -19,14 +19,17 @@ class NoURL(Exception):
 class InitialRequestFailed(Exception):
     pass
 
+class ChartType:
+    top = "top"
+
 class Chart:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, *, chart_type, release_types,
                  year_range=None, primary_genres=None,
                  secondary_genres=None, primary_genres_excluded=None,
-                 secondary_genres_excluded=None, countries=None,
-                 countries_excluded=None, languages=None,
+                 secondary_genres_excluded=None, locations=None,
+                 locations_excluded=None, languages=None,
                  languages_excluded=None, descriptors=None,
                  descriptors_excluded=None, include_subgenres=True,
                  contain_all_genres=False) -> None:
@@ -38,8 +41,8 @@ class Chart:
         self.secondary_genres = secondary_genres
         self.primary_genres_excluded = primary_genres_excluded
         self.secondary_genres_excluded = secondary_genres_excluded
-        self.countries = countries
-        self.countries_excluded = countries_excluded
+        self.locations = locations
+        self.locations_excluded = locations_excluded
         self.languages = languages
         self.languages_excluded = languages_excluded
         self.descriptors = descriptors
@@ -54,7 +57,7 @@ class Chart:
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.current_page = 1
         self.max_page = self._fetch_max_page()
-        self.chart_entries = self._fetch_chart_entries()
+        #self.chart_entries = self._fetch_chart_entries()
 
     def _fetch_url(self):
         url = f"https://rateyourmusic.com/charts/{self.chart_type}/{','.join(self.release_types)}"
@@ -66,7 +69,7 @@ class Chart:
                         (self.descriptors, self.descriptors_excluded, "d"),
                         (self.secondary_genres, self.secondary_genres_excluded, "s"),
                         (self.languages, self.languages_excluded, "l"),
-                        (self.location, self.location_excluded, "loc")
+                        (self.locations, self.locations_excluded, "loc")
                 ]:
             if field[2] in ["g", "s"]:
                 if field[0]:
@@ -84,8 +87,12 @@ class Chart:
                     url+= f"/d:-{',-'.join(field[1])}"
 
         return url
-
-        
+    
+    def _fetch_max_page(self):
+        try:
+            return int(self._soup.findAll("a", {"class": "ui_pagination_btn ui_pagination_number"})[-1].text)
+        except:
+            return 0
 
 class Genre:
     @sleep_and_retry
