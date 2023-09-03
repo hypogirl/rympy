@@ -104,15 +104,15 @@ class Chart:
         if self.current_page > self.max_page:
             raise NoEntries("No more pages to be loaded.")
         
-        chart_elem = self._soup.find("section", {"id":"page_charts_section_charts"}).contents[0]
+        chart_elem = self._soup.find("section", {"id":"page_charts_section_charts"}).contents
         entries = [SimpleRelease(
                         name=(entry.find("div", {"class": "page_charts_section_charts_item_credited_links_primary"})
                             .text.replace("\n", "") +
                             " - " +
                             entry.find("div", {"class": "page_charts_section_charts_item_title"})
                             .text.replace("\n", "")),
-                        url=entry.contents[1]["href"]
-                    ) for entry in chart_elem]
+                        url="https://rateyourmusic.com" + entry.contents[1].contents[1]["href"]
+                    ) for entry in chart_elem[:-1:2]]
         
         return entries
     
