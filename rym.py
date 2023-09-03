@@ -19,6 +19,9 @@ class NoURL(Exception):
 class InitialRequestFailed(Exception):
     pass
 
+class NoEntries(Exception):
+    pass
+
 class ChartType:
     top = "top"
 
@@ -50,14 +53,17 @@ class Chart:
         self.include_subgenres = include_subgenres
         self.contain_all_genres = contain_all_genres
 
-        self.url = self._fetch_url()
-        self._cached_rym_response = requests.get(self.url, headers= headers)
+        self.init_url = self._fetch_url()
+        self.current_url = self.init_url
+        self._cached_rym_response = requests.get(self.init_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
-            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.current_page = 1
         self.max_page = self._fetch_max_page()
-        #self.chart_entries = self._fetch_chart_entries()
+        if self.current_page > self.max_page:
+            raise NoEntries("The requested chart has no entries.")
+        self.entries = self._fetch_entries()
 
     def _fetch_url(self):
         url = f"https://rateyourmusic.com/charts/{self.chart_type}/{','.join(self.release_types)}"
@@ -86,25 +92,56 @@ class Chart:
                 elif field[1]:
                     url+= f"/d:-{',-'.join(field[1])}"
 
-        return url
+        return url + "/1/"
     
     def _fetch_max_page(self):
         try:
             return int(self._soup.findAll("a", {"class": "ui_pagination_btn ui_pagination_number"})[-1].text)
         except:
             return 0
+        
+    def _fetch_entries(self):
+        if self.current_page > self.max_page:
+            raise NoEntries("No more pages to be loaded.")
+        
+        chart_elem = self._soup.find("section", {"id":"page_charts_section_charts"}).contents[0]
+        entries = [SimpleRelease(
+                        name=(entry.find("div", {"class": "page_charts_section_charts_item_credited_links_primary"})
+                            .text.replace("\n", "") +
+                            " - " +
+                            entry.find("div", {"class": "page_charts_section_charts_item_title"})
+                            .text.replace("\n", "")),
+                        url=entry.contents[1]["href"]
+                    ) for entry in chart_elem]
+        
+        return entries
+    
+    def load_more_entries(self):
+        self.current_page += 1
+        re.replace(r"\d+\/$", f"{self.current_page}/", self.current_url)
+        self.entries += self._fetch_entries()
+        return self
+
+    def __str__(self):
+        return self._get_representation()
+
+    def __repr__(self):
+        return self._get_representation()
+
+    def _get_representation(self):
+        return f"{self.chart_type} {' '.join(self.release_types)} chart"
 
 class Genre:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
-    def __init__(self, rym_url=None, name=None) -> None:
-        if not rym_url and not name:
-            raise ValueError("At least one of 'rym_url' or 'name' must be provided.")
+    def __init__(self, url=None, name=None) -> None:
+        if not url and not name:
+            raise ValueError("At least one of 'url' or 'name' must be provided.")
         if name:
             self._url_name = name.replace(' ', '-').lower()
         else:
-            self._url_name = rym_url.split("/")[-2]
-        self.url = rym_url or f"https://rateyourmusic.com/genre/{self._url_name}/"
+            self._url_name = url.split("/")[-2]
+        self.url = url or f"https://rateyourmusic.com/genre/{self._url_name}/"
         self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
@@ -126,7 +163,7 @@ class Genre:
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
-        return [SimpleGenre(rym_url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems] or None
+        return [SimpleGenre(url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems] or None
     
     def _fetch_children_genres(self):
         genre_elem = self._soup.find("li", {"class":"hierarchy_list_item hierarchy_list_item_current"})
@@ -135,7 +172,7 @@ class Genre:
         for i in range(1, len(children_elems), 2):
             url = "https://rateyourmusic.com" + children_elems[i].contents[1].contents[1].contents[1]["href"]
             name = children_elems[i].contents[1].contents[1].contents[1].text
-            children_genres.append(SimpleGenre(rym_url=url, name= name))
+            children_genres.append(SimpleGenre(url=url, name= name))
         return children_genres or None
 
     def __str__(self):
@@ -155,12 +192,12 @@ class Genre:
 class Artist:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
-    def __init__(self, rym_url) -> None:
-        self._cached_rym_response = requests.get(rym_url, headers= headers)
+    def __init__(self, url) -> None:
+        self._cached_rym_response = requests.get(url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.rym_url = rym_url
+        self.url = url
         self.name = self._fetch_name()
         #self.type = self._fetch_type()
         self._start_date_location = self._fetch_start_date_location()
@@ -259,7 +296,7 @@ class Artist:
                 instruments_list = instruments_list or None
                 years_active_list = years_active_list or None
                 aka = aka or None
-                members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, rym_url=url, aka=aka))
+                members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, url=url, aka=aka))
             
             return members
 
@@ -282,7 +319,7 @@ class Artist:
                     url = "https://rateyourmusic.com" + aka_elems_urls[urls_index]["href"]
                     urls_index += 1
 
-                akas.append(SimpleArtist(name=aka, rym_url=url))    
+                akas.append(SimpleArtist(name=aka, url=url))    
 
             return akas
         
@@ -306,13 +343,13 @@ class Artist:
 
 
 class Release:
-    def __init__(self, rym_url) -> None:
+    def __init__(self, url) -> None:
         sleep(60)
-        self._cached_rym_response = requests.get(rym_url, headers= headers)
+        self._cached_rym_response = requests.get(url, headers= headers)
         if self._cached_rym_response.status_code != 200:
             raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.rym_url = rym_url        
+        self.url = url        
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
         self._collaboration_symbol = None
@@ -411,17 +448,12 @@ class Release:
         return f"{self.type}: {self.artists} - {self.title}"
 
     def __eq__(self, other):
-        return self.rym_url == other.rym_url
-
-class YearRange:
-    def __init__(self, *, min, max) -> None:
-        self.min= min
-        self.max= max
+        return self.url == other.url
 
 class SimpleEntity:
-    def __init__(self, *, name=None, rym_url=None) -> None:
+    def __init__(self, *, name=None, url=None) -> None:
         self.name = name
-        self.url = rym_url
+        self.url = url
 
     def __str__(self):
         return self._get_representation()
@@ -448,11 +480,16 @@ class SimpleRelease(SimpleEntity):
         return Release(self.url)
     
 class BandMember(SimpleArtist):
-    def __init__(self, *, name, instruments, years_active, aka, rym_url):
-        super().__init__(name=name, rym_url=rym_url)
+    def __init__(self, *, name, instruments, years_active, aka, url):
+        super().__init__(name=name, url=url)
         self.instruments = instruments
         self.years_active = years_active
         self.aka = aka
+
+class YearRange:
+    def __init__(self, *, min, max) -> None:
+        self.min= min
+        self.max= max
 
 class ReleaseType:
     album = "album"
