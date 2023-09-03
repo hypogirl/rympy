@@ -364,7 +364,7 @@ class Release:
     def _fetch_title(self):
         release_title_elem = self._soup.find("div", {"class": "album_title"})
         try:
-            return re.findall(r".+\n +\nBy (.+)", release_title_elem.text)[0]
+            return re.findall(r"(.+)\n +\nBy .+", release_title_elem.text)[0]
         except IndexError:
             raise ParseError("No title was found for this release.")
         
@@ -387,19 +387,19 @@ class Release:
     def _fetch_type(self):
         return re.findall("Type(\w+)", self._soup.text)[0]
     
-    def _fetch_primary_genres(self):
+    def _gen_fetch_genres(self, type):
         try:
-            primary_genres = self._soup.find("span", {"class": "release_pri_genres"}).text
+            genres_text = self._soup.find("span", {"class": f"release_{type}_genres"}).text
+            genres = [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")]
         except:
-            primary_genres = None
-        return primary_genres
+            genres = None
+        return genres
+    
+    def _fetch_primary_genres(self):
+        return self._gen_fetch_genres("pri")
 
     def _fetch_secondary_genres(self):
-        try:
-            secondary_genres = self._soup.find("span", {"class": "release_sec_genres"}).text
-        except:
-            secondary_genres = None
-        return secondary_genres
+        return self._gen_fetch_genres("sec")
     
     def _fetch_descriptors(self):
         try:
