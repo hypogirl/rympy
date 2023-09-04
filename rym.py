@@ -127,7 +127,7 @@ class Chart:
         return self._get_representation()
 
     def _get_representation(self):
-        return f"{self.chart_type} {' '.join(self.release_types)} chart"
+        return f"Chart: {self.chart_type} {' '.join(self.release_types)}"
 
 class Genre:
     @sleep_and_retry
@@ -192,12 +192,9 @@ class Genre:
         return children_genres or None
 
     def __str__(self):
-        return self._get_representation()
+        return self.name
 
     def __repr__(self):
-        return self._get_representation()
-
-    def _get_representation(self):
         return f"Genre: {self.name}"
         
 
@@ -245,6 +242,30 @@ class Artist:
             return self._soup.find("h1", {"class": "artist_name_hdr"}).text
         except AttributeError:
             raise ParseError("No artist name was found.")
+        
+    def _fetch_location(self, date_location_elem):
+        if location_elem := date_location_elem.find("a", {"class": "location"}):
+            location_list = location_elem.text.split(", ")
+            if len(location_list) == 3:
+                return Location(city=location_list[0], state=location_list[1], country=location_list[2], url=location_elem["href"])
+            elif len(location_list) == 2:
+                return Location(state=location_list[0], country=location_list[1], url=location_elem["href"])
+            else:
+                return Location(country=location_list[0], url=location_elem["href"])
+
+    def _fetch_gen_date_location(self, *titles):
+        for title in titles:
+            if (date_location_elem := self._soup.find("div", {"class": "info_hdr"}, string=title)):
+                date_location_info = date_location_elem.find_next_sibling()
+                location = self._fetch_location(date_location_elem)
+                date_text = date_location_info.contents[0].strip[:-1]
+                date_components_count = date_text.count(" ") + 1
+                date_formating = {1: "%Y",
+                                2: "%B %Y",
+                                3: "%d %B %Y"}
+                date = datetime.strptime(date_text, date_formating[date_components_count])
+                return {"date": date,
+                        "location": location}
 
     def _fetch_start_date_location(self):
         return self._fetch_gen_date_location("Formed", "Born")
@@ -254,19 +275,6 @@ class Artist:
     
     def _fetch_current_location(self):
         return self._fetch_gen_date_location("Currently")["location"] or self.start_date
-
-    def _fetch_gen_date_location(self, *titles):
-        for title in titles:
-            if (gen_elem := self._soup.find("div", {"class": "info_hdr"}, string=title)):
-                gen_info = gen_elem.find_next_sibling().text.split(",")
-                return {
-                    'date': gen_info[0].lstrip(),
-                    'location': [location_info.lstrip() for location_info in gen_info[1:]]
-                }
-        return {
-            'date': None,
-            'location': None
-        }
 
     def _fetch_genres(self):
         if genre_div := self._soup.find("div", {"class": "info_hdr"}, string="Genres"):
@@ -329,12 +337,9 @@ class Artist:
             return notes_elem.text
 
     def __str__(self):
-        return self._get_representation()
+        return self.name
 
     def __repr__(self):
-        return self._get_representation()
-
-    def _get_representation(self):
         return f"Artist: {self.name}"
 
 
@@ -447,16 +452,33 @@ class Release:
             raise ParseError("No ID was found for this release.")
 
     def __str__(self):
-        return self._get_representation()
+        return self.title
 
     def __repr__(self):
-        return self._get_representation()
-
-    def _get_representation(self):
         return f"{self.type}: {','.join(self.artists)} - {self.title}"
 
     def __eq__(self, other):
         return self.url == other.url
+
+class Location:
+    def __init__(self, *, city=None, state=None, country, url) -> None:
+        self.city = city
+        self.state = state
+        self.country = country
+
+    def _get_representation(self, init_text):
+        full_text = init_text
+        if self.city:
+            full_text = self.city + ", "
+        if self.state:
+            full_text += self.state + ", "
+        return full_text + self.country
+    
+    def __str__(self):
+        return self._get_representation(str())
+
+    def __repr__(self):
+        return self._get_representation("Location: ")
 
 class SimpleEntity:
     def __init__(self, *, name=None, url=None) -> None:
@@ -464,12 +486,9 @@ class SimpleEntity:
         self.url = url
 
     def __str__(self):
-        return self._get_representation()
+        return self.name
 
     def __repr__(self):
-        return self._get_representation()
-
-    def _get_representation(self):
         return f"Simplified: {self.name}"
 
 class SimpleGenre(SimpleEntity):
