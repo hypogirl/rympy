@@ -1,5 +1,6 @@
 import requests
 import re
+from datetime import datetime
 from typing import List
 from time import sleep
 import json
@@ -21,9 +22,6 @@ class InitialRequestFailed(Exception):
 
 class NoEntries(Exception):
     pass
-
-class ChartType:
-    top = "top"
 
 class Chart:
     @sleep_and_retry
@@ -96,8 +94,8 @@ class Chart:
     
     def _fetch_max_page(self):
         try:
-            return int(self._soup.findAll("a", {"class": "ui_pagination_btn ui_pagination_number"})[-1].text)
-        except:
+            return int(self._soup.find_all("a", {"class": "ui_pagination_btn ui_pagination_number"})[-1].text)
+        except IndexError:
             return 0
         
     def _fetch_entries(self):
@@ -151,6 +149,24 @@ class Genre:
         self.parent_genres = self._fetch_parent_genres()
         self.children_genres = self._fetch_children_genres()
 
+    def top_chart(self, year_range=None):
+        if not year_range:
+            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album])
+        else:
+            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+    
+    def bottom_chart(self, year_range=None):
+        if not year_range:
+            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album])
+        else:
+            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+        
+    def esoteric_chart(self, year_range=None):
+        if not year_range:
+            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album])
+        else:
+            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+
     def _fetch_name(self):
         try:
             return self._soup.find("section", {"id": "page_genre_section_name"}).contents[1].text
@@ -183,10 +199,6 @@ class Genre:
 
     def _get_representation(self):
         return f"Genre: {self.name}"
-
-    def chart(self, year_range=None):
-        if not year_range:
-            return Chart()
         
 
 class Artist:
@@ -257,21 +269,13 @@ class Artist:
         }
 
     def _fetch_genres(self):
-        try:
-            genre_div = self._soup.find("div", {"class": "info_hdr"}, string="Genres")
+        if genre_div := self._soup.find("div", {"class": "info_hdr"}, string="Genres"):
             genres_elem = genre_div.find_next_sibling()
-        except:
-            return None
-        else:
             return [SimpleGenre(name=genre.lstrip()) for genre in genres_elem.text.split(",")]
 
     def _fetch_members(self):
-        try:
-            members_div = self._soup.find("div", {"class": "info_hdr"}, string="Members")
+        if members_div := self._soup.find("div", {"class": "info_hdr"}, string="Members"):
             members_elem = members_div.find_next_sibling()
-        except:
-            return None
-        else:
             members_elems_list = members_elem.contents[0].contents
             members_elems_urls = [member for member in members_elems_list if isinstance(member, bs4.Tag) and member.get("href")]
             members_elem_raw = members_elem.text
@@ -301,12 +305,8 @@ class Artist:
             return members
 
     def _fetch_akas(self):
-        try:
-            aka_div = self._soup.find("div", {"class": "info_hdr"}, string="Also Known As")
+        if aka_div := self._soup.find("div", {"class": "info_hdr"}, string="Also Known As"):
             aka_elem = aka_div.find_next_sibling()
-        except:
-            return None
-        else:
             akas_text = aka_elem.text.split(",")
             aka_elems_list = aka_elem.contents[0].contents
             aka_elems_urls = [aka for aka in aka_elems_list if isinstance(aka, bs4.Tag) and aka.get("href")]
@@ -324,12 +324,8 @@ class Artist:
             return akas
         
     def _fetch_notes(self):
-        try:
-            notes_div = self._soup.find("div", {"class": "info_hdr"}, string="Notes")
+        if notes_div := self._soup.find("div", {"class": "info_hdr"}, string="Notes"):
             notes_elem = notes_div.find_next_sibling()
-        except:
-            return None
-        else:
             return notes_elem.text
 
     def __str__(self):
@@ -343,6 +339,8 @@ class Artist:
 
 
 class Release:
+    @sleep_and_retry
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, url) -> None:
         sleep(60)
         self._cached_rym_response = requests.get(url, headers= headers)
@@ -352,8 +350,12 @@ class Release:
         self.url = url        
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
-        self._collaboration_symbol = None
-        self.year = self._fetch_year()
+        self.average_rating = self._fetch_average_rating()
+        self.number_of_ratings = self._fetch_number_of_ratings()
+        self.number_of_reviews = self._fetch_number_of_reviews()
+        #self._collaboration_symbol = None
+        self.release_date = self._fetch_release_date()
+        self.recording_date = self._fetch_recording_date()
         self.type = self._fetch_type()
         self.primary_genres = self._fetch_primary_genres()
         self.secondary_genres = self._fetch_secondary_genres()
@@ -369,31 +371,48 @@ class Release:
             raise ParseError("No title was found for this release.")
         
     def _fetch_artists(self):
-        release_title_elem = self._soup.find("div", {"class": "album_title"})
-        try:
-            artist_name = release_title_elem.find("span", {"class": "credited_name"}).contents[0] # this only works for collaborative albums
-        except:
-            artist_name = re.findall(".+\n +\nBy (.+)", release_title_elem.text)[0]
-        return artist_name
+        outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
+        artists_elem = outer_elem.find_all("a", {"class":"artist"})
+        return [SimpleArtist(name=artist.text, url="https://rateyourmusic.com"+artist["href"]) for artist in artists_elem]
     
-    def _fetch_year(self):
-        release_year_proto = re.findall(r"Released\w+ (\d+)|Released\d+ \w+ (\d+)|Released(\d{4})", self._soup.text)
-        if release_year_proto:
-            release_year = release_year_proto[0][0] or release_year_proto[0][1] or release_year_proto[0][2]
-        else:
-            release_year = None
-        return release_year
+    def _fetch_average_rating(self):
+        if average_rating_elem := self._soup.find("span", {"class": "avg_rating"}):
+            return average_rating_elem.text.strip()
+        
+    def _fetch_number_of_ratings(self):
+        if num_ratings_elem := self._soup.find("span", {"class": "num_ratings"}):
+            return num_ratings_elem.contents[1].text.strip()
+        
+    def _fetch_number_of_reviews(self):
+        if review_section := self._soup.find("div", {"class": "section_reviews section_outer"}):
+            reviews_elem_split = review_section.find("div", {"class": "release_page_header"}).text.split(" ")
+            if len(reviews_elem_split) > 1:
+                return reviews_elem_split[0]
+            
+    def _gen_fetch_date(self, regex):
+        date_proto = re.findall(regex, self._soup.text)[0]
+        if date := date_proto[0] or date_proto[1] or date_proto[2]:
+            date_components_count = date.count(" ") + 1
+            date_formating = {1: "%Y",
+                              2: "%B %Y",
+                              3: "%d %B %Y"}
+            return datetime.strptime(date, date_formating[date_components_count])
     
+    def _fetch_release_date(self):
+        return self._gen_fetch_date(r"Released(\w+ \d+)|Released(\d+ \w+ \d+)|Released(\d{4})")
+        
+    def _fetch_recording_date(self):
+        return self._gen_fetch_date(r"Recorded(\w+ \d+)|Recorded(\d+ \w+ \d+)|Recorded(\d{4})")
+            
     def _fetch_type(self):
-        return re.findall("Type(\w+)", self._soup.text)[0]
-    
+        if type_div := self._soup.find("th", {"class": "info_hdr"}, string="Type"):
+            type_elem = type_div.find_next_sibling()
+            return type_elem.text.split(",") if "," in type_elem.text else type_elem.text
+
     def _gen_fetch_genres(self, type):
-        try:
-            genres_text = self._soup.find("span", {"class": f"release_{type}_genres"}).text
-            genres = [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")]
-        except:
-            genres = None
-        return genres
+        if genres_elem := self._soup.find("span", {"class": f"release_{type}_genres"}):
+            genres_text = genres_elem.text
+            return [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")]
     
     def _fetch_primary_genres(self):
         return self._gen_fetch_genres("pri")
@@ -402,11 +421,8 @@ class Release:
         return self._gen_fetch_genres("sec")
     
     def _fetch_descriptors(self):
-        try:
-            descriptors = self._soup.find("span", {"class": "release_pri_descriptors"}).text
-        except:
-            descriptors = None
-        return descriptors
+        if descriptors := self._soup.find("span", {"class": "release_pri_descriptors"}):
+            return descriptors.text
 
     def _fetch_cover_url(self):
         release_cover_elem = self._soup.find("img")
@@ -419,18 +435,10 @@ class Release:
             release_cover_url = None
         return release_cover_url
 
-    def _fetch_release_type(self):
-        release_type = re.findall("Type(\w+)", self._soup.text)[0]
-        return release_type
-
     def _fetch_release_links(self):
-        release_links_elem = self._soup.find("div", {"id": "media_link_button_container_top"})
-        if release_links_elem:
-            release_links = json.loads(release_links_elem["data-links"])
-        else:
-            release_links = None
-        return release_links
-    
+        if release_links_elem := self._soup.find("div", {"id": "media_link_button_container_top"}):
+            return json.loads(release_links_elem["data-links"])
+        
     def _fetch_id(self):
         id_elem = self._soup.find("input", {"class": "album_shortcut"})
         try:
@@ -445,7 +453,7 @@ class Release:
         return self._get_representation()
 
     def _get_representation(self):
-        return f"{self.type}: {self.artists} - {self.title}"
+        return f"{self.type}: {','.join(self.artists)} - {self.title}"
 
     def __eq__(self, other):
         return self.url == other.url
@@ -485,6 +493,11 @@ class BandMember(SimpleArtist):
         self.instruments = instruments
         self.years_active = years_active
         self.aka = aka
+
+class ChartType:
+    top = "top"
+    bottom = "bottom"
+    esoteric = "esoteric"
 
 class YearRange:
     def __init__(self, *, min, max) -> None:
