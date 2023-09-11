@@ -2,12 +2,12 @@ import requests
 import re
 from datetime import datetime
 from typing import List
-from time import sleep
 import json
 import bs4
 from ratelimit import limits, sleep_and_retry
 
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
+ROOT_URL = "https://rateyourmusic.com"
 CALL_LIMIT = 1
 RATE_LIMIT = 60
 
@@ -17,10 +17,10 @@ class ParseError(Exception):
 class NoURL(Exception):
     pass
 
-class InitialRequestFailed(Exception):
+class RequestFailed(Exception):
     pass
 
-class NoEntries(Exception):
+class NoContent(Exception):
     pass
 
 class Chart:
@@ -55,13 +55,13 @@ class Chart:
         self.current_url = self.init_url
         self._cached_rym_response = requests.get(self.init_url, headers= headers)
         if self._cached_rym_response.status_code != 200:
-            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.current_page = 1
         self.max_page = self._fetch_max_page()
         if self.current_page > self.max_page:
-            raise NoEntries("The requested chart has no entries.")
-        self.entries = self._fetch_entries()
+            raise NoContent("The requested chart has no entries.")
+        self.content = self._fetch_entries(init=True)
 
     def _fetch_url(self):
         url = f"https://rateyourmusic.com/charts/{self.chart_type}/{','.join(self.release_types)}"
@@ -98,9 +98,15 @@ class Chart:
         except IndexError:
             return 0
         
-    def _fetch_entries(self):
+    def _fetch_entries(self, init=False):
         if self.current_page > self.max_page:
-            raise NoEntries("No more pages to be loaded.")
+            raise NoContent("No more pages to be loaded.")
+        
+        if not init:
+            self._cached_rym_response = requests.get(self.current_url, headers= headers)
+            if self._cached_rym_response.status_code != 200:
+                raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
+            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         
         chart_elem = self._soup.find("section", {"id":"page_charts_section_charts"}).contents
         entries = [SimpleRelease(
@@ -109,15 +115,15 @@ class Chart:
                             " - " +
                             entry.find("div", {"class": "page_charts_section_charts_item_title"})
                             .text.replace("\n", "")),
-                        url="https://rateyourmusic.com" + entry.contents[1].contents[1]["href"]
+                        url=ROOT_URL + entry.contents[1].contents[1]["href"]
                     ) for entry in chart_elem[:-1:2]]
         
         return entries
     
     def load_more_entries(self):
         self.current_page += 1
-        re.replace(r"\d+\/$", f"{self.current_page}/", self.current_url)
-        self.entries += self._fetch_entries()
+        self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
+        self.content += self._fetch_entries()
         return self
 
     def __str__(self):
@@ -142,7 +148,7 @@ class Genre:
         self.url = url or f"https://rateyourmusic.com/genre/{self._url_name}/"
         self._cached_rym_response = requests.get(self.url, headers= headers)
         if self._cached_rym_response.status_code != 200:
-            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.name = self._fetch_name()
         self.akas = self._fetch_akas()
@@ -179,16 +185,16 @@ class Genre:
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
-        return [SimpleGenre(url= "https://rateyourmusic.com" + parent.contents[1].contents[1]["href"], name= parent.contents[1].contents[1].text) for parent in parent_elems] or None
+        return [SimpleGenre(name= parent.contents[1].contents[1].text, url= ROOT_URL + parent.contents[1].contents[1]["href"]) for parent in parent_elems] or None
     
     def _fetch_children_genres(self):
         genre_elem = self._soup.find("li", {"class":"hierarchy_list_item hierarchy_list_item_current"})
         children_elems = genre_elem.find_next_sibling().contents
         children_genres = list()
         for i in range(1, len(children_elems), 2):
-            url = "https://rateyourmusic.com" + children_elems[i].contents[1].contents[1].contents[1]["href"]
+            url = ROOT_URL + children_elems[i].contents[1].contents[1].contents[1]["href"]
             name = children_elems[i].contents[1].contents[1].contents[1].text
-            children_genres.append(SimpleGenre(url=url, name= name))
+            children_genres.append(SimpleGenre(name=name, url=url))
         return children_genres or None
 
     def __str__(self):
@@ -197,14 +203,13 @@ class Genre:
     def __repr__(self):
         return f"Genre: {self.name}"
         
-
 class Artist:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, url) -> None:
         self._cached_rym_response = requests.get(url, headers= headers)
         if self._cached_rym_response.status_code != 200:
-            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.url = url
         self.name = self._fetch_name()
@@ -294,7 +299,7 @@ class Artist:
             for name, aka, info in members_name_info:
                 url = None
                 if urls_index < len(members_elems_urls) and members_elems_urls[urls_index].text == name:
-                    url = "https://rateyourmusic.com" + members_elems_urls[urls_index]["href"]
+                    url = ROOT_URL + members_elems_urls[urls_index]["href"]
                     urls_index += 1
                 
                 instruments_list = list()
@@ -324,7 +329,7 @@ class Artist:
             for aka in akas_text:
                 url = None
                 if urls_index < len(aka_elems_urls) and aka_elems_urls[urls_index].text == aka:
-                    url = "https://rateyourmusic.com" + aka_elems_urls[urls_index]["href"]
+                    url = ROOT_URL + aka_elems_urls[urls_index]["href"]
                     urls_index += 1
 
                 akas.append(SimpleArtist(name=aka, url=url))    
@@ -347,12 +352,11 @@ class Release:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, url) -> None:
-        sleep(60)
         self._cached_rym_response = requests.get(url, headers= headers)
         if self._cached_rym_response.status_code != 200:
-            raise InitialRequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.url = url        
+        self.url = url
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
         self.average_rating = self._fetch_average_rating()
@@ -366,7 +370,65 @@ class Release:
         self.secondary_genres = self._fetch_secondary_genres()
         self.descriptors = self._fetch_descriptors()
         self.cover_url = self._fetch_cover_url()
+        self.links = self._fetch_release_links()
+        self.reviews = None
+        self.lists = None
         self._id = self._fetch_id()
+
+    class Lists:
+        @sleep_and_retry
+        @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
+        def __init__(self, url) -> None:
+            self.init_url = url
+            self.current_url = url
+            self._cached_rym_response = requests.get(self.init_url, headers= headers)
+            if self._cached_rym_response.status_code != 200:
+                raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
+            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+            self.current_page = 1
+            self.max_page = self._fetch_max_page()
+            if self.current_page > self.max_page:
+                raise NoContent("This release has no lists.")
+            self.content = self._fetch_lists(init=True)
+
+        def _fetch_max_page(self):
+            try:
+                return int(self._soup.find_all("a", {"class": "navlinknum"})[-1].text)
+            except IndexError:
+                return 0
+
+        def _fetch_lists(self, init=False):
+            if self.current_page > self.max_page:
+                raise NoContent("No more pages to be loaded.")
+            
+            if not init:
+                self._cached_rym_response = requests.get(self.current_url, headers= headers)
+                if self._cached_rym_response.status_code != 200:
+                    raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
+                self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+            
+            
+            lists_elem = self._soup.find("ul", {"class": "lists expanded"}).contents
+            return [SimpleList(
+                name= entry.contents[3].contents[1].contents[0].text,
+                url= ROOT_URL + entry.contents[3].contents[1].contents[0]["href"]
+                ) for entry in lists_elem[1::2]]
+        
+        def load_more_lists(self):
+            self.current_page += 1
+            self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
+            self.content += self._fetch_lists()
+            return self
+
+
+    @property
+    def reviews(self):
+        return self.reviews or self._fetch_reviews()
+    
+    @property
+    def lists(self):
+        return self.lists or self.Lists(self.url + "lists/1/" if self.url.endswith("/") else "/lists/1/")
+    
 
     def _fetch_title(self):
         release_title_elem = self._soup.find("div", {"class": "album_title"})
@@ -378,7 +440,7 @@ class Release:
     def _fetch_artists(self):
         outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
         artists_elem = outer_elem.find_all("a", {"class":"artist"})
-        return [SimpleArtist(name=artist.text, url="https://rateyourmusic.com"+artist["href"]) for artist in artists_elem]
+        return [SimpleArtist(name=artist.text, url=ROOT_URL+artist["href"]) for artist in artists_elem]
     
     def _fetch_average_rating(self):
         if average_rating_elem := self._soup.find("span", {"class": "avg_rating"}):
@@ -395,13 +457,13 @@ class Release:
                 return reviews_elem_split[0]
             
     def _gen_fetch_date(self, regex):
-        date_proto = re.findall(regex, self._soup.text)[0]
-        if date := date_proto[0] or date_proto[1] or date_proto[2]:
-            date_components_count = date.count(" ") + 1
-            date_formating = {1: "%Y",
-                              2: "%B %Y",
-                              3: "%d %B %Y"}
-            return datetime.strptime(date, date_formating[date_components_count])
+        if date_proto := re.findall(regex, self._soup.text):
+            if date := date_proto[0][0] or date_proto[0][1] or date_proto[0][2]:
+                date_components_count = date.count(" ") + 1
+                date_formating = {1: "%Y",
+                                2: "%B %Y",
+                                3: "%d %B %Y"}
+                return datetime.strptime(date, date_formating[date_components_count])
     
     def _fetch_release_date(self):
         return self._gen_fetch_date(r"Released(\w+ \d+)|Released(\d+ \w+ \d+)|Released(\d{4})")
@@ -410,9 +472,8 @@ class Release:
         return self._gen_fetch_date(r"Recorded(\w+ \d+)|Recorded(\d+ \w+ \d+)|Recorded(\d{4})")
             
     def _fetch_type(self):
-        if type_div := self._soup.find("th", {"class": "info_hdr"}, string="Type"):
-            type_elem = type_div.find_next_sibling()
-            return type_elem.text.split(",") if "," in type_elem.text else type_elem.text
+        if types_proto := re.findall(r"Type((?:\w+, )*\w+)", self._soup.text):
+            return types_proto[0].split(",") if "," in types_proto[0] else types_proto[0]
 
     def _gen_fetch_genres(self, type):
         if genres_elem := self._soup.find("span", {"class": f"release_{type}_genres"}):
@@ -442,7 +503,43 @@ class Release:
 
     def _fetch_release_links(self):
         if release_links_elem := self._soup.find("div", {"id": "media_link_button_container_top"}):
-            return json.loads(release_links_elem["data-links"])
+            links_json = json.loads(release_links_elem["data-links"])
+            release_links = {
+                "spotify": None,
+                "youtube": None,
+                "bandcamp": None,
+                "soundcloud": None,
+                "applemusic": None
+            }
+            for platform in links_json:
+                match platform:
+                    case "spotify":
+                        id = next(iter(links_json["spotify"]))
+                        release_links["spotify"] = f"https://open.spotify.com/album/{id}"
+                    case "youtube":
+                        id = next(iter(links_json["youtube"]))
+                        release_links["yotube"] = f"https://www.youtube.com/watch?v={id}"
+                    case "bandcamp":
+                        bandcamp_dict = links_json["bandcamp"]
+                        url = [value["url"] for value in bandcamp_dict.values() if value["url"]][0]
+                        release_links["bandcamp"] = "https://" + url
+                    case "soundcloud":
+                        soundcloud_dict = links_json["soundcloud"]
+                        url = [value["url"] for value in soundcloud_dict.values() if value["url"]][0]
+                        release_links["soundcloud"] = "https://" + url
+                    case "applemusic":
+                        id = next(iter(links_json["applemusic"]))
+                        applemusic_values = links_json["applemusic"].values()
+                        (loc, album) = [(value["loc"], value["album"]) for value in applemusic_values][0]
+                        release_links["applemusic"] = f"https://music.apple.com/{loc}/album/{album}/{id}"
+            return ReleaseLinks(spotify=release_links["spotify"],
+                                youtube=release_links["youtube"],
+                                bandcamp=release_links["bandcamp"],
+                                soundcloud=release_links["soundcloud"],
+                                apple_music=release_links["applemusic"])
+        
+    def _fetch_reviews(self):
+        return
         
     def _fetch_id(self):
         id_elem = self._soup.find("input", {"class": "album_shortcut"})
@@ -455,16 +552,42 @@ class Release:
         return self.title
 
     def __repr__(self):
-        return f"{self.type}: {','.join(self.artists)} - {self.title}"
+        return f"{self.type}: {','.join([artist.name for artist in self.artists])} - {self.title}"
 
     def __eq__(self, other):
         return self.url == other.url
+    
+class User:
+    def __init__(self, *, username=None, url=None) -> None:
+        self.username = username or re.search(r"\w+$", url).group()
+        if not username:
+            raise NoURL("No valid username or URL provided.")
+        
+class RYMList:
+    def __init__(self) -> None:
+        pass
+    
+class Review:
+    def __init__(self, *, url, release:Release=None) -> None:
+        self._cached_rym_response = requests.get(url, headers= headers)
+        if self._cached_rym_response.status_code != 200:
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.url = url
+        self.content = self._fetch_content()
+        self.user = self._fetch_user()
+        self.date = self._fetch_date()
+        self.release = release or SimpleRelease(name= self._fetch_album_name(), url=self._fetch_release_url())
+
+    def _fetch_content(self):
+        return
 
 class Location:
     def __init__(self, *, city=None, state=None, country, url) -> None:
         self.city = city
         self.state = state
         self.country = country
+        self.url = url
 
     def _get_representation(self, init_text):
         full_text = init_text
@@ -479,6 +602,14 @@ class Location:
 
     def __repr__(self):
         return self._get_representation("Location: ")
+    
+class ReleaseLinks:
+    def __init__(self, *, spotify=None, youtube=None, bandcamp=None, soundcloud=None, apple_music=None):
+        self.spotify = spotify
+        self.youtube = youtube
+        self.bandcamp = bandcamp
+        self.soundcloud = soundcloud
+        self.apple_music = apple_music
 
 class SimpleEntity:
     def __init__(self, *, name=None, url=None) -> None:
@@ -505,6 +636,10 @@ class SimpleArtist(SimpleEntity):
 class SimpleRelease(SimpleEntity):
     def get_release(self):
         return Release(self.url)
+    
+class SimpleList(SimpleEntity):
+    def get_list(self):
+        return RYMList(self.url)
     
 class BandMember(SimpleArtist):
     def __init__(self, *, name, instruments, years_active, aka, url):
