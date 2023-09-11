@@ -564,8 +564,42 @@ class User:
             raise NoURL("No valid username or URL provided.")
         
 class RYMList:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, url) -> None:
+        self.init_url = url
+        self.current_url = self.init_url
+        self._cached_rym_response = requests.get(self.init_url, headers= headers)
+        if self._cached_rym_response.status_code != 200:
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.author = self._fetch_author()
+        self.content = self._fetch_entries()
+        self.current_page = 1
+        if not self._soup.find("a", {"class": "navlinknext"}):
+            raise NoContent("The requested chart has no entries.")
+        self.content = self._fetch_entries(init=True)
+        self._id = self._fetch_id()
+        
+    def _fetch_entries(self, init=False):
+        # no clue how to get around with this yet
+        '''if not init:
+            self._cached_rym_response = requests.get(self.current_url, headers= headers)
+            if self._cached_rym_response.status_code != 200:
+                raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
+            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        
+        if not self._soup.find("a", {"class": "navlinknext"}):
+            raise NoContent("No more pages to be loaded.")
+
+        list_elem = self._soup.find("table", {"id":"user_list"}).contents
+        entries = [SimpleList() for entry in list_elem[:-1:2]]
+        
+        return entries'''
+
+    def load_more_entries(self):
+        self.current_page += 1
+        self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
+        self.content += self._fetch_entries()
+        return self
     
 class Review:
     def __init__(self, *, url, release:Release=None) -> None:
