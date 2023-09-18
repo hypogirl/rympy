@@ -35,7 +35,7 @@ class Chart:
                  descriptors_excluded=None, include_subgenres=True,
                  contain_all_genres=False) -> None:
         
-        self.chart_type = chart_type
+        self.type = chart_type
         self.release_types = release_types
         self.year_range = year_range
         self.primary_genres = primary_genres
@@ -64,7 +64,7 @@ class Chart:
         self.content = self._fetch_entries(init=True)
 
     def _fetch_url(self):
-        url = f"https://rateyourmusic.com/charts/{self.chart_type}/{','.join(self.release_types)}"
+        url = f"https://rateyourmusic.com/charts/{self.type}/{','.join(self.release_types)}"
 
         if self.year_range:
             url += f"/{self.year_range.min}-{self.year_range.max}/"
@@ -133,7 +133,7 @@ class Chart:
         return self._get_representation()
 
     def _get_representation(self):
-        return f"Chart: {self.chart_type} {' '.join(self.release_types)}"
+        return f"Chart: {self.type} {' '.join(self.release_types)}"
 
 class Genre:
     @sleep_and_retry
@@ -156,22 +156,20 @@ class Genre:
         self.children_genres = self._fetch_children_genres()
 
     def top_chart(self, year_range=None):
-        if not year_range:
-            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album])
-        else:
-            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+        return Chart(type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
     
     def bottom_chart(self, year_range=None):
-        if not year_range:
-            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album])
-        else:
-            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+        return Chart(type=ChartType.bottom, release_types=[ReleaseType.album], year_range=year_range)
         
     def esoteric_chart(self, year_range=None):
-        if not year_range:
-            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album])
+        return Chart(type=ChartType.esoteric, release_types=[ReleaseType.album], year_range=year_range)
+        
+    def chart(self, *, type=None, year_range=None):
+        if not type:
+            return Chart(type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
         else:
-            return Chart(chart_type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+            return Chart(type=type, release_types=[ReleaseType.album], year_range=year_range)
+
 
     def _fetch_name(self):
         try:
@@ -347,6 +345,11 @@ class Artist:
     def __repr__(self):
         return f"Artist: {self.name}"
 
+class Track:
+    def __init__(self, *, number, title, length) -> None:
+        self.number = number
+        self.title = title
+        self.length = length
 
 class Release:
     @sleep_and_retry
@@ -371,6 +374,8 @@ class Release:
         self.descriptors = self._fetch_descriptors()
         self.cover_url = self._fetch_cover_url()
         self.links = self._fetch_release_links()
+        self.tracks = self._fetch_tracks()
+        self.credits = self._fetch_credits()
         self.reviews = None
         self.lists = None
         self._id = self._fetch_id()
@@ -538,6 +543,21 @@ class Release:
                                 soundcloud=release_links["soundcloud"],
                                 apple_music=release_links["applemusic"])
         
+    def _fetch_tracks(self):
+        tracks_elem = self._soup.find(id="tracks")
+        tracks = list()
+
+        for track in tracks_elem.contents:
+            track_number = track.contents[0].find("span", {"class": "tracklist_num"}).text.replace("\n","").replace(" ", "")
+            track_title = track.contents[0].find("span", {"class": "tracklist_title"}).text
+            track_length = tracks.find("span", {"class": "tracklist_title"}).contents[1]["data-inseconds"]
+            tracks.append(Track(number=track_number, title=track_title, length=track_length))
+        
+        return tracks
+    
+    def _fetch_credits(self):
+        return
+        
     def _fetch_reviews(self):
         return
         
@@ -686,6 +706,8 @@ class ChartType:
     top = "top"
     bottom = "bottom"
     esoteric = "esoteric"
+    diverse = "diverse"
+    popular = "popular"
 
 class YearRange:
     def __init__(self, *, min, max) -> None:
