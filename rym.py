@@ -1,12 +1,13 @@
 import requests
 import re
 from datetime import datetime
+from datetime import timedelta
 from typing import List
 import json
 import bs4
 from ratelimit import limits, sleep_and_retry
 
-headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
 ROOT_URL = "https://rateyourmusic.com"
 CALL_LIMIT = 1
 RATE_LIMIT = 60
@@ -53,7 +54,7 @@ class Chart:
 
         self.init_url = self._fetch_url()
         self.current_url = self.init_url
-        self._cached_rym_response = requests.get(self.init_url, headers= headers)
+        self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -103,14 +104,14 @@ class Chart:
             raise NoContent("No more pages to be loaded.")
         
         if not init:
-            self._cached_rym_response = requests.get(self.current_url, headers= headers)
+            self._cached_rym_response = requests.get(self.current_url, headers= HEADERS)
             if self._cached_rym_response.status_code != 200:
                 raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         
         chart_elem = self._soup.find("section", {"id":"page_charts_section_charts"}).contents
         entries = [SimpleRelease(
-                        name=(entry.find("div", {"class": "page_charts_section_charts_item_credited_links_primary"})
+                        title=(entry.find("div", {"class": "page_charts_section_charts_item_credited_links_primary"})
                             .text.replace("\n", "") +
                             " - " +
                             entry.find("div", {"class": "page_charts_section_charts_item_title"})
@@ -146,7 +147,7 @@ class Genre:
         else:
             self._url_name = url.split("/")[-2]
         self.url = url or f"https://rateyourmusic.com/genre/{self._url_name}/"
-        self._cached_rym_response = requests.get(self.url, headers= headers)
+        self._cached_rym_response = requests.get(self.url, headers= HEADERS)
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -205,7 +206,7 @@ class Artist:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, url) -> None:
-        self._cached_rym_response = requests.get(url, headers= headers)
+        self._cached_rym_response = requests.get(url, headers= HEADERS)
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -346,16 +347,21 @@ class Artist:
         return f"Artist: {self.name}"
 
 class Track:
-    def __init__(self, *, number, title, length) -> None:
+    def __init__(self, *, number, title, length, credited_artists=None, release) -> None:
         self.number = number
         self.title = title
         self.length = length
+        self.credited_artists = credited_artists
+        self.release = release
+
+    def __eq__(self, other) -> bool:
+        return self.number == other.number and self.release == other.release
 
 class Release:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, url) -> None:
-        self._cached_rym_response = requests.get(url, headers= headers)
+        self._cached_rym_response = requests.get(url, headers= HEADERS)
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -374,19 +380,21 @@ class Release:
         self.descriptors = self._fetch_descriptors()
         self.cover_url = self._fetch_cover_url()
         self.links = self._fetch_release_links()
-        self.tracks = self._fetch_tracks()
-        self.credits = self._fetch_credits()
-        self.reviews = None
+        self.tracklist = self._fetch_tracks()
+        self.length = self._fetch_length()
+        self.credited_artists = self._fetch_credited_artists()
+        self.__update_tracks()
+        self.reviews = self._fetch_reviews()
         self.lists = None
         self._id = self._fetch_id()
 
-    class Lists:
+    class EntryCollection:
         @sleep_and_retry
         @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
         def __init__(self, url) -> None:
             self.init_url = url
             self.current_url = url
-            self._cached_rym_response = requests.get(self.init_url, headers= headers)
+            self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
             if self._cached_rym_response.status_code != 200:
                 raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -394,46 +402,92 @@ class Release:
             self.max_page = self._fetch_max_page()
             if self.current_page > self.max_page:
                 raise NoContent("This release has no lists.")
-            self.content = self._fetch_lists(init=True)
+            self.entries = self._fetch_entries(init=True)
 
         def _fetch_max_page(self):
             try:
                 return int(self._soup.find_all("a", {"class": "navlinknum"})[-1].text)
             except IndexError:
                 return 0
-
-        def _fetch_lists(self, init=False):
+            
+        def load_more_entries(self):
+            self.current_page += 1
+            self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
+            self.entries += self._fetch_entries()
+            return self
+        
+        def _fetch_entries(self, init=False):
             if self.current_page > self.max_page:
                 raise NoContent("No more pages to be loaded.")
             
             if not init:
-                self._cached_rym_response = requests.get(self.current_url, headers= headers)
+                self._cached_rym_response = requests.get(self.current_url, headers= HEADERS)
                 if self._cached_rym_response.status_code != 200:
                     raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
                 self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-            
-            
+
+            self._specific_fetch()
+
+    class Lists(EntryCollection):
+        def _specific_fetch(self):
             lists_elem = self._soup.find("ul", {"class": "lists expanded"}).contents
             return [SimpleList(
-                name= entry.contents[3].contents[1].contents[0].text,
+                title= entry.contents[3].contents[1].contents[0].text,
                 url= ROOT_URL + entry.contents[3].contents[1].contents[0]["href"]
                 ) for entry in lists_elem[1::2]]
         
-        def load_more_lists(self):
-            self.current_page += 1
-            self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
-            self.content += self._fetch_lists()
-            return self
+    class Reviews(EntryCollection):
+        def _specific_fetch(self):
+            curr_elem = self._soup.find(class_="review_list")
+            reviews = list()
 
+            while True:
+                try:
+                    curr_elem = curr_elem.next_sibling.next_sibling
 
-    @property
-    def reviews(self):
-        return self.reviews or self._fetch_reviews()
+                    review_content = str()
+                    if review_elem := curr_elem.find(class_="page_review_feature_body_inner"):
+                        review_content = review_elem.text
+                    
+                    rating = None
+                    if rating_elem := curr_elem.find(class_="page_review_feature_rating"):
+                        rating = float(rating_elem["content"])
+                    
+                    review_date_text = curr_elem.find(class_="review_date").contents[1].text
+                    review_date = datetime.strptime(review_date_text, "%B %d %Y")
+
+                    reviews.append(Review(
+                        url=ROOT_URL + curr_elem.find(class_="review_date").contents[1]["href"],
+                        content=review_content,
+                        rating=rating,
+                        release=self,
+                        date=review_date,
+                        request_needed=False
+                    ))
+                except AttributeError:
+                    return reviews
     
     @property
     def lists(self):
-        return self.lists or self.Lists(self.url + "lists/1/" if self.url.endswith("/") else "/lists/1/")
-    
+        if not self._lists:
+            self._lists = self.Lists((self.url + "/lists/1/").replace("//","/"))
+        return self._lists
+
+    @property
+    def reviews(self):
+        if not self._reviews:
+            self._reviews = self.Reviews((self.url + "/lists/1/").replace("//","/"))
+        return self._reviews
+
+    def get_track_by_title(self, title):
+        for track in self.tracklist:
+            if track.title == title:
+                return track
+            
+    def get_track_by_number(self, number):
+        for track in self.tracklist:
+            if track.number == number:
+                return track
 
     def _fetch_title(self):
         release_title_elem = self._soup.find("div", {"class": "album_title"})
@@ -550,17 +604,89 @@ class Release:
         for track in tracks_elem.contents:
             track_number = track.contents[0].find("span", {"class": "tracklist_num"}).text.replace("\n","").replace(" ", "")
             track_title = track.contents[0].find("span", {"class": "tracklist_title"}).text
-            track_length = tracks.find("span", {"class": "tracklist_title"}).contents[1]["data-inseconds"]
+            track_length = timedelta(seconds=int(tracks.find("span", {"class": "tracklist_title"}).contents[1]["data-inseconds"]))
             tracks.append(Track(number=track_number, title=track_title, length=track_length))
         
         return tracks
     
-    def _fetch_credits(self):
-        return
+    def _fetch_credited_artists(self):
+        def get_role_tracks(text):
+            result_tuples = re.findall(r"(\w+-\w+)|(\w+)", text)
+            role_tracks = list()
+
+            for (result1, result2) in result_tuples:
+                if result1:
+                    start_stop_tracks = result1.split("-")
+                    start_flag = False
+                    for track in self.tracklist:
+                        if track.number == start_stop_tracks[1]:
+                            break
+                        if track.number == start_stop_tracks[0]:
+                            start_flag = True
+                        if start_flag:
+                            role_tracks.append(track)
+                elif result2:
+                    role_tracks.append(self.get_track_by_number(result2))
+
+            return role_tracks
+
+        credits_elem = self._soup.find(id="credits_")
+        credited_artists = list()
+        for artist in credits_elem[::2]:
+            role_elems = credits_elem.contents[0].find_all(class_="role_name")
+            roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.contents[1].text)) for role in role_elems]
+            credited_artists.append(CreditedArtist(name=artist.contents[0].text, 
+                                                       url=ROOT_URL+artist.contents[0].get("href"),
+                                                       roles=roles))
+
+
+        return credited_artists
+    
+    def __update_tracks(self):
+        new_credited_artist = list()
+
+        for credited_artist in self.credited_artists:
+            new_roles = list()
+
+            for role in credited_artist.roles:
+                new_tracks = list()
+
+                for track in role.tracks:
+                    if track in self.tracklist:
+                        track.credited_artists = credited_artist
+                        new_tracks.append(track)
+                        self.tracklist[self.tracklist.index(track)] = track
+                
+                role.tracks = new_tracks
+                new_roles.append(role)
+
+            credited_artist.roles = new_roles
+            new_credited_artist.append(credited_artist)
         
-    def _fetch_reviews(self):
-        return
+        self.credited_artists = new_credited_artist
+    
+    def _fetch_length(self):
+        release_length_elem = self._soup.find("span", class_="tracklist_total")
         
+        if not release_length_elem:
+            return None
+        
+        length_raw = re.findall(r"(\d+):(\d+)", release_length_elem.text)
+        
+        if not length_raw:
+            return None
+        
+        minutes = 0
+        seconds = 0
+        
+        if length_raw[0][0]:
+            minutes = int(length_raw[0][0])
+        
+        if length_raw[0][1]:
+            seconds = int(length_raw[0][1])
+
+        return timedelta(minutes=minutes, seconds=seconds)
+                
     def _fetch_id(self):
         id_elem = self._soup.find("input", {"class": "album_shortcut"})
         try:
@@ -587,7 +713,7 @@ class RYMList:
     def __init__(self, url) -> None:
         self.init_url = url
         self.current_url = self.init_url
-        self._cached_rym_response = requests.get(self.init_url, headers= headers)
+        self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -602,7 +728,7 @@ class RYMList:
     def _fetch_entries(self, init=False):
         # no clue how to get around with this yet
         '''if not init:
-            self._cached_rym_response = requests.get(self.current_url, headers= headers)
+            self._cached_rym_response = requests.get(self.current_url, headers= HEADERS)
             if self._cached_rym_response.status_code != 200:
                 raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -622,19 +748,50 @@ class RYMList:
         return self
     
 class Review:
-    def __init__(self, *, url, release:Release=None) -> None:
-        self._cached_rym_response = requests.get(url, headers= headers)
-        if self._cached_rym_response.status_code != 200:
-            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
-        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+    def __init__(self, *, url, author=None, content=None, rating=None, release:Release=None, date=None, request_needed=True) -> None:
         self.url = url
-        self.content = self._fetch_content()
-        self.user = self._fetch_user()
-        self.date = self._fetch_date()
-        self.release = release or SimpleRelease(name= self._fetch_album_name(), url=self._fetch_release_url())
+        self.content = content
+        self.rating = rating
+        self.author = author
+        self.date = date
+        self.release = release
+        if request_needed:
+            self._cached_rym_response = requests.get(url, headers= HEADERS)
+            if self._cached_rym_response.status_code != 200:
+                raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+            self.content = content or self._fetch_content()
+            self.rating = rating or self._fetch_rating()
+            self.author = author or self._fetch_author()
+            self.simplified_releade = SimpleRelease(title= self._fetch_release_title(), url= self._fetch_release_url())
 
     def _fetch_content(self):
-        return
+        if review_elem := self._soup.find(class_="page_review_feature_body_inner"):
+            return review_elem.text
+        
+    def _fetch_author(self):
+        try:
+            return SimpleUser(name=self._soup.find(class_="user").text)
+        except AttributeError:
+            raise NoContent("No author was found for the review.")
+
+    def _fetch_release_title(self):
+        try:
+            return self._soup.find(class_="album").text
+        except AttributeError:
+            raise NoContent("No title was found for the release.")
+    
+    def _fetch_release_url(self):
+        try:
+            return ROOT_URL + self._soup.find(class_="album")["href"]
+        except KeyError:
+            raise NoContent("No URL was found for the release.")
+        
+    def _fetch_rating(self):
+        rating_elem = self._soup.find(class_="page_review_feature_rating")
+        if not rating_elem:
+            return None
+        return float(rating_elem["content"])
 
 class Location:
     def __init__(self, *, city=None, state=None, country, url) -> None:
@@ -666,9 +823,13 @@ class ReleaseLinks:
         self.apple_music = apple_music
 
 class SimpleEntity:
-    def __init__(self, *, name=None, url=None) -> None:
-        self.name = name
+    def __init__(self, *, name=None, title=None, url=None) -> None:
+        self.title = name or title
         self.url = url
+
+    @property
+    def name(self):
+        return self.title
 
     def __str__(self):
         return self.name
@@ -695,12 +856,39 @@ class SimpleList(SimpleEntity):
     def get_list(self):
         return RYMList(self.url)
     
+class SimpleUser(SimpleEntity):
+    def get_user(self):
+        return User(username=self.name, url=self.url)
+    
 class BandMember(SimpleArtist):
-    def __init__(self, *, name, instruments, years_active, aka, url):
+    def __init__(self, *, name, instruments, years_active, aka, url=None):
         super().__init__(name=name, url=url)
         self.instruments = instruments
         self.years_active = years_active
         self.aka = aka
+
+class CreditedArtist(SimpleArtist):
+    def __init__(self, *, name, url=None, roles):
+        super().__init__(name=name, url=url)
+        self.roles = roles
+
+class Role():
+    def __init__(self, *, name, tracks=None, credited_artist= None) -> None:
+        self.name = name
+        self.tracks = tracks
+        self.credited_artist = credited_artist
+
+    def __repr__(self):
+        return self.__get_representation()
+
+    def __str__(self):
+        return self.__get_representation()
+    
+    def __get_representation(self):
+        if self.tracks:
+            return f"{self.name} in {','.join([track.name for track in self.tracks])}"
+        else:
+            return self.name
 
 class ChartType:
     top = "top"
