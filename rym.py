@@ -152,6 +152,8 @@ class Genre:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.name = self._fetch_name()
+        self.short_description = self._fetch_short_description()
+        self.description = self._fetch_description()
         self.akas = self._fetch_akas()
         self.parent_genres = self._fetch_parent_genres()
         self.children_genres = self._fetch_children_genres()
@@ -177,6 +179,12 @@ class Genre:
             return self._soup.find("section", {"id": "page_genre_section_name"}).contents[1].text
         except AttributeError:
             raise ParseError("No genre name was found.")
+        
+    def _fetch_short_description(self):
+        return self._soup.find(id="page_genre_description_short").text
+        
+    def _fetch_description(self):
+        return self._soup.find(id="page_genre_description_full").text
         
     def _fetch_akas(self):
         if aka_elems := self._soup.find_all("bdi", class_="comma_separated"):
@@ -705,9 +713,29 @@ class Release:
     
 class User:
     def __init__(self, *, username=None, url=None) -> None:
-        self.username = username or re.search(r"\w+$", url).group()
+        self.username = username or re.search(r"[\w+|_]+$", url).group()
         if not username:
             raise NoURL("No valid username or URL provided.")
+        self.url = url or f"{ROOT_URL}/~{username}"
+        self._cached_rym_response = requests.get(self.url, headers= HEADERS)
+        if self._cached_rym_response.status_code != 200:
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.favorite_artists = self._fetch_favorite_artists()
+
+    @property
+    def favourite_artists(self):
+        return self.favorite_artists
+    
+    def _fetch_favorite_artists(self):
+        title_elem = self._soup.find(class_="bubble_header", string="favorite artists")
+        if not title_elem:
+            return None
+        fav_artists_elem = title_elem.next_sibling.contents[1].contents[1]
+        return [SimpleArtist(name=artist_elem.text.lstrip(),
+                             url=artist_elem["href"])
+                             for artist_elem in fav_artists_elem
+                             if artist_elem.name == "a" and artist_elem.get("title") and artist_elem["title"].startswith("[Artist")]
         
 class RYMList:
     def __init__(self, url) -> None:
@@ -872,7 +900,7 @@ class CreditedArtist(SimpleArtist):
         super().__init__(name=name, url=url)
         self.roles = roles
 
-class Role():
+class Role:
     def __init__(self, *, name, tracks=None, credited_artist= None) -> None:
         self.name = name
         self.tracks = tracks
