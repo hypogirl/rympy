@@ -95,7 +95,7 @@ class Chart:
     
     def _fetch_max_page(self):
         try:
-            return int(self._soup.find_all("a", {"class": "ui_pagination_btn ui_pagination_number"})[-1].text)
+            return int(self._soup.find_all("a", class_= "ui_pagination_btn ui_pagination_number")[-1].text)
         except IndexError:
             return 0
         
@@ -109,12 +109,12 @@ class Chart:
                 raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         
-        chart_elem = self._soup.find("section", {"id":"page_charts_section_charts"}).contents
+        chart_elem = self._soup.find("section", id="page_charts_section_charts").contents
         entries = [SimpleRelease(
-                        title=(entry.find("div", {"class": "page_charts_section_charts_item_credited_links_primary"})
+                        title=(entry.find("div", class_= "page_charts_section_charts_item_credited_links_primary")
                             .text.replace("\n", "") +
                             " - " +
-                            entry.find("div", {"class": "page_charts_section_charts_item_title"})
+                            entry.find("div", class_= "page_charts_section_charts_item_title")
                             .text.replace("\n", "")),
                         url=ROOT_URL + entry.contents[1].contents[1]["href"]
                     ) for entry in chart_elem[:-1:2]]
@@ -189,7 +189,7 @@ class Genre:
 
     def _fetch_name(self):
         try:
-            return self._soup.find("section", {"id": "page_genre_section_name"}).contents[1].text
+            return self._soup.find("section", id="page_genre_section_name").contents[1].text
         except AttributeError:
             raise ParseError("No genre name was found.")
         
@@ -204,11 +204,11 @@ class Genre:
             return [aka.text for aka in aka_elems]
         
     def _fetch_parent_genres(self):
-        parent_elems = self._soup.find_all("li", {"class":"hierarchy_list_item parent"})
+        parent_elems = self._soup.find_all("li", class_="hierarchy_list_item parent")
         return [SimpleGenre(name= parent.contents[1].contents[1].text, url= ROOT_URL + parent.contents[1].contents[1]["href"]) for parent in parent_elems] or None
     
     def _fetch_children_genres(self):
-        genre_elem = self._soup.find("li", {"class":"hierarchy_list_item hierarchy_list_item_current"})
+        genre_elem = self._soup.find("li", class_="hierarchy_list_item hierarchy_list_item_current")
         children_elems = genre_elem.find_next_sibling().contents
         children_genres = list()
         for i in range(1, len(children_elems), 2):
@@ -267,12 +267,12 @@ class Artist:
 
     def _fetch_name(self):
         try:
-            return self._soup.find("h1", {"class": "artist_name_hdr"}).text
+            return self._soup.find("h1", class_="artist_name_hdr").text
         except AttributeError:
             raise ParseError("No artist name was found.")
         
     def _fetch_location(self, date_location_elem):
-        if location_elem := date_location_elem.find("a", {"class": "location"}):
+        if location_elem := date_location_elem.find("a", class_="location"):
             location_list = location_elem.text.split(", ")
             if len(location_list) == 3:
                 return Location(city=location_list[0], state=location_list[1], country=location_list[2], url=location_elem["href"])
@@ -283,7 +283,7 @@ class Artist:
 
     def _fetch_gen_date_location(self, *titles):
         for title in titles:
-            if (date_location_elem := self._soup.find("div", {"class": "info_hdr"}, string=title)):
+            if (date_location_elem := self._soup.find("div", class_="info_hdr"}, string=title)):
                 date_location_info = date_location_elem.find_next_sibling()
                 location = self._fetch_location(date_location_elem)
                 date_text = date_location_info.contents[0].strip[:-1]
@@ -305,12 +305,12 @@ class Artist:
         return self._fetch_gen_date_location("Currently")["location"] or self.start_date
 
     def _fetch_genres(self):
-        if genre_div := self._soup.find("div", {"class": "info_hdr"}, string="Genres"):
+        if genre_div := self._soup.find("div", class_="info_hdr"}, string="Genres"):
             genres_elem = genre_div.find_next_sibling()
             return [SimpleGenre(name=genre.lstrip()) for genre in genres_elem.text.split(",")]
 
     def _fetch_members(self):
-        if members_div := self._soup.find("div", {"class": "info_hdr"}, string="Members"):
+        if members_div := self._soup.find("div", class_="info_hdr"}, string="Members"):
             members_elem = members_div.find_next_sibling()
             members_elems_list = members_elem.contents[0].contents
             members_elems_urls = [member for member in members_elems_list if isinstance(member, bs4.Tag) and member.get("href")]
@@ -341,7 +341,7 @@ class Artist:
             return members
 
     def _fetch_akas(self):
-        if aka_div := self._soup.find("div", {"class": "info_hdr"}, string="Also Known As"):
+        if aka_div := self._soup.find("div", class_="info_hdr"}, string="Also Known As"):
             aka_elem = aka_div.find_next_sibling()
             akas_text = aka_elem.text.split(",")
             aka_elems_list = aka_elem.contents[0].contents
@@ -360,7 +360,7 @@ class Artist:
             return akas
         
     def _fetch_notes(self):
-        if notes_div := self._soup.find("div", {"class": "info_hdr"}, string="Notes"):
+        if notes_div := self._soup.find("div", class_="info_hdr"}, string="Notes"):
             notes_elem = notes_div.find_next_sibling()
             return notes_elem.text
 
@@ -430,7 +430,7 @@ class Release:
 
         def _fetch_max_page(self):
             try:
-                return int(self._soup.find_all("a", {"class": "navlinknum"})[-1].text)
+                return int(self._soup.find_all("a", class_="navlinknum")[-1].text)
             except IndexError:
                 return 0
             
@@ -454,7 +454,7 @@ class Release:
 
     class Lists(EntryCollection):
         def _specific_fetch(self):
-            lists_elem = self._soup.find("ul", {"class": "lists expanded"}).contents
+            lists_elem = self._soup.find("ul", class_="lists expanded").contents
             return [SimpleList(
                 title= entry.contents[3].contents[1].contents[0].text,
                 url= ROOT_URL + entry.contents[3].contents[1].contents[0]["href"]
@@ -514,7 +514,7 @@ class Release:
                 return track
 
     def _fetch_title(self):
-        release_title_elem = self._soup.find("div", {"class": "album_title"})
+        release_title_elem = self._soup.find("div", class_="album_title")
         try:
             return re.findall(r"(.+)\n +\nBy .+", release_title_elem.text)[0]
         except IndexError:
@@ -522,20 +522,20 @@ class Release:
         
     def _fetch_artists(self):
         outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
-        artists_elem = outer_elem.find_all("a", {"class":"artist"})
+        artists_elem = outer_elem.find_all("a", class_="artist")
         return [SimpleArtist(name=artist.text, url=ROOT_URL+artist["href"]) for artist in artists_elem]
     
     def _fetch_average_rating(self):
-        if average_rating_elem := self._soup.find("span", {"class": "avg_rating"}):
+        if average_rating_elem := self._soup.find("span", class_="avg_rating"):
             return average_rating_elem.text.strip()
         
     def _fetch_number_of_ratings(self):
-        if num_ratings_elem := self._soup.find("span", {"class": "num_ratings"}):
+        if num_ratings_elem := self._soup.find("span", class_="num_ratings"):
             return num_ratings_elem.contents[1].text.strip()
         
     def _fetch_number_of_reviews(self):
-        if review_section := self._soup.find("div", {"class": "section_reviews section_outer"}):
-            reviews_elem_split = review_section.find("div", {"class": "release_page_header"}).text.split(" ")
+        if review_section := self._soup.find("div", class_="section_reviews section_outer"):
+            reviews_elem_split = review_section.find("div", class_="release_page_header").text.split(" ")
             if len(reviews_elem_split) > 1:
                 return reviews_elem_split[0]
             
@@ -559,7 +559,7 @@ class Release:
             return types_proto[0].split(",") if "," in types_proto[0] else types_proto[0]
 
     def _gen_fetch_genres(self, type):
-        if genres_elem := self._soup.find("span", {"class": f"release_{type}_genres"}):
+        if genres_elem := self._soup.find("span", class_=f"release_{type}_genres"):
             genres_text = genres_elem.text
             return [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")]
     
@@ -570,7 +570,7 @@ class Release:
         return self._gen_fetch_genres("sec")
     
     def _fetch_descriptors(self):
-        if descriptors := self._soup.find("span", {"class": "release_pri_descriptors"}):
+        if descriptors := self._soup.find("span", class_="release_pri_descriptors"):
             return descriptors.text
 
     def _fetch_cover_url(self):
@@ -585,7 +585,7 @@ class Release:
         return release_cover_url
 
     def _fetch_release_links(self):
-        if release_links_elem := self._soup.find("div", {"id": "media_link_button_container_top"}):
+        if release_links_elem := self._soup.find("div", id="media_link_button_container_top"):
             links_json = json.loads(release_links_elem["data-links"])
             release_links = {
                 "spotify": None,
@@ -626,9 +626,9 @@ class Release:
         tracks = list()
 
         for track in tracks_elem.contents:
-            track_number = track.contents[0].find("span", {"class": "tracklist_num"}).text.replace("\n","").replace(" ", "")
-            track_title = track.contents[0].find("span", {"class": "tracklist_title"}).text
-            track_length = timedelta(seconds=int(tracks.find("span", {"class": "tracklist_title"}).contents[1]["data-inseconds"]))
+            track_number = track.contents[0].find("span", class_="tracklist_num").text.replace("\n","").replace(" ", "")
+            track_title = track.contents[0].find("span", class_="tracklist_title").text
+            track_length = timedelta(seconds=int(tracks.find("span", class_="tracklist_title").contents[1]["data-inseconds"]))
             tracks.append(Track(number=track_number, title=track_title, length=track_length))
         
         return tracks
@@ -712,7 +712,7 @@ class Release:
         return timedelta(minutes=minutes, seconds=seconds)
                 
     def _fetch_id(self):
-        id_elem = self._soup.find("input", {"class": "album_shortcut"})
+        id_elem = self._soup.find("input", class_="album_shortcut")
         try:
             return id_elem["value"][1:-1]
         except TypeError:
@@ -786,7 +786,7 @@ class RYMList:
         self.author = self._fetch_author()
         self.content = self._fetch_entries()
         self.current_page = 1
-        if not self._soup.find("a", {"class": "navlinknext"}):
+        if not self._soup.find("a", class_="navlinknext"):
             raise NoContent("The requested chart has no entries.")
         self.content = self._fetch_entries(init=True)
         self._id = self._fetch_id()
@@ -799,10 +799,10 @@ class RYMList:
                 raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         
-        if not self._soup.find("a", {"class": "navlinknext"}):
+        if not self._soup.find("a", class_="navlinknext"):
             raise NoContent("No more pages to be loaded.")
 
-        list_elem = self._soup.find("table", {"id":"user_list"}).contents
+        list_elem = self._soup.find("table", {"id":"user_list").contents
         entries = [SimpleList() for entry in list_elem[:-1:2]]
         
         return entries'''
@@ -965,8 +965,8 @@ class ChartType:
 
 class YearRange:
     def __init__(self, *, min, max) -> None:
-        self.min= min
-        self.max= max
+        self.min = min
+        self.max = max
 
 class ReleaseType:
     album = "album"
