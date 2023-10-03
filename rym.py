@@ -157,15 +157,28 @@ class Genre:
         self.akas = self._fetch_akas()
         self.parent_genres = self._fetch_parent_genres()
         self.children_genres = self._fetch_children_genres()
+        self._top_chart = None
+        self._bottom_chart = None
+        self._esoteric_chart = None
+        self.top_ten_albums = self._fetch_top_ten()
 
-    def top_chart(self, year_range=None):
-        return Chart(type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+    @property
+    def top_chart(self):
+        if not self._top_chart:
+            self._top_chart = Chart(type=ChartType.top, release_types=[ReleaseType.album])
+        return self._top_chart
+
+    @property
+    def bottom_chart(self):
+        if not self._bottom_chart:
+            self._bottom_chart = Chart(type=ChartType.bottom, release_types=[ReleaseType.album])
+        return self._bottom_chart
     
-    def bottom_chart(self, year_range=None):
-        return Chart(type=ChartType.bottom, release_types=[ReleaseType.album], year_range=year_range)
-        
-    def esoteric_chart(self, year_range=None):
-        return Chart(type=ChartType.esoteric, release_types=[ReleaseType.album], year_range=year_range)
+    @property
+    def esoteric_chart(self):
+        if not self._esoteric_chart:
+            self._esoteric_chart = Chart(type=ChartType.esoteric, release_types=[ReleaseType.album])
+        return self._esoteric_chart
         
     def chart(self, *, type=None, year_range=None):
         if not type:
@@ -203,6 +216,9 @@ class Genre:
             name = children_elems[i].contents[1].contents[1].contents[1].text
             children_genres.append(SimpleGenre(name=name, url=url))
         return children_genres or None
+    
+    def _fetch_top_ten(self):
+        return
 
     def __str__(self):
         return self.name
@@ -722,10 +738,18 @@ class User:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.favorite_artists = self._fetch_favorite_artists()
+        self.recently_online_friends = self._fetch_recently_online_friends()
+        self._friends = None
 
     @property
     def favourite_artists(self):
         return self.favorite_artists
+    
+    @property
+    def friends(self):
+        if not self._friends:
+            self._friends = self._fetch_friends()
+        return self._friends
     
     def _fetch_favorite_artists(self):
         title_elem = self._soup.find(class_="bubble_header", string="favorite artists")
@@ -736,6 +760,20 @@ class User:
                              url=artist_elem["href"])
                              for artist_elem in fav_artists_elem
                              if artist_elem.name == "a" and artist_elem.get("title") and artist_elem["title"].startswith("[Artist")]
+    
+    def _fetch_recently_online_friends(self):
+        friends_elem = self._soup.find(id="ftabfriends")
+        if not friends_elem:
+            return None
+        return [SimpleUser(name= friend.text) for friend in friends_elem.find_all("td")]
+    
+    def _fetch_friends(self):
+        friends_url = self.url.replace("~", "friends/")
+        friends_request = requests.get(friends_url, headers= HEADERS)
+        friends_soup = bs4.BeautifulSoup(friends_request.content, "html.parser")
+        friends_elem = friends_soup.find_all(class_="or_card_frame_inner")
+        if friends_elem:
+            return [SimpleUser(name= friend.text.replace("\n   \n","")) for friend in friends_elem]
         
 class RYMList:
     def __init__(self, url) -> None:
