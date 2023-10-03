@@ -65,7 +65,11 @@ class Chart:
         self.content = self._fetch_entries(init=True)
 
     def _fetch_url(self):
-        url = f"https://rateyourmusic.com/charts/{self.type}/{','.join(self.release_types)}"
+        release_types_str = str()
+        if isinstance(self.release_types, list):
+            release_types_str = ','.join(self.release_types)
+       
+        url = f"https://rateyourmusic.com/charts/{self.type}/{release_types_str or self.release_types}"
 
         if self.year_range:
             url += f"/{self.year_range.min}-{self.year_range.max}/"
@@ -165,26 +169,26 @@ class Genre:
     @property
     def top_chart(self):
         if not self._top_chart:
-            self._top_chart = Chart(type=ChartType.top, release_types=[ReleaseType.album])
+            self._top_chart = Chart(type=ChartType.top, release_types=ReleaseType.album)
         return self._top_chart
 
     @property
     def bottom_chart(self):
         if not self._bottom_chart:
-            self._bottom_chart = Chart(type=ChartType.bottom, release_types=[ReleaseType.album])
+            self._bottom_chart = Chart(type=ChartType.bottom, release_types=ReleaseType.album)
         return self._bottom_chart
     
     @property
     def esoteric_chart(self):
         if not self._esoteric_chart:
-            self._esoteric_chart = Chart(type=ChartType.esoteric, release_types=[ReleaseType.album])
+            self._esoteric_chart = Chart(type=ChartType.esoteric, release_types=ReleaseType.album)
         return self._esoteric_chart
         
     def chart(self, *, type=None, year_range=None):
         if not type:
-            return Chart(type=ChartType.top, release_types=[ReleaseType.album], year_range=year_range)
+            return Chart(type=ChartType.top, release_types=ReleaseType.album, year_range=year_range)
         else:
-            return Chart(type=type, release_types=[ReleaseType.album], year_range=year_range)
+            return Chart(type=type, release_types=ReleaseType.album, year_range=year_range)
 
 
     def _fetch_name(self):
@@ -283,7 +287,7 @@ class Artist:
 
     def _fetch_gen_date_location(self, *titles):
         for title in titles:
-            if (date_location_elem := self._soup.find("div", class_="info_hdr"}, string=title)):
+            if (date_location_elem := self._soup.find("div", class_="info_hdr", string=title)):
                 date_location_info = date_location_elem.find_next_sibling()
                 location = self._fetch_location(date_location_elem)
                 date_text = date_location_info.contents[0].strip[:-1]
@@ -305,12 +309,12 @@ class Artist:
         return self._fetch_gen_date_location("Currently")["location"] or self.start_date
 
     def _fetch_genres(self):
-        if genre_div := self._soup.find("div", class_="info_hdr"}, string="Genres"):
+        if genre_div := self._soup.find("div", class_="info_hdr", string="Genres"):
             genres_elem = genre_div.find_next_sibling()
             return [SimpleGenre(name=genre.lstrip()) for genre in genres_elem.text.split(",")]
 
     def _fetch_members(self):
-        if members_div := self._soup.find("div", class_="info_hdr"}, string="Members"):
+        if members_div := self._soup.find("div", class_="info_hdr", string="Members"):
             members_elem = members_div.find_next_sibling()
             members_elems_list = members_elem.contents[0].contents
             members_elems_urls = [member for member in members_elems_list if isinstance(member, bs4.Tag) and member.get("href")]
@@ -341,7 +345,7 @@ class Artist:
             return members
 
     def _fetch_akas(self):
-        if aka_div := self._soup.find("div", class_="info_hdr"}, string="Also Known As"):
+        if aka_div := self._soup.find("div", class_="info_hdr", string="Also Known As"):
             aka_elem = aka_div.find_next_sibling()
             akas_text = aka_elem.text.split(",")
             aka_elems_list = aka_elem.contents[0].contents
@@ -360,7 +364,7 @@ class Artist:
             return akas
         
     def _fetch_notes(self):
-        if notes_div := self._soup.find("div", class_="info_hdr"}, string="Notes"):
+        if notes_div := self._soup.find("div", class_="info_hdr", string="Notes"):
             notes_elem = notes_div.find_next_sibling()
             return notes_elem.text
 
