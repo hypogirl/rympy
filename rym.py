@@ -252,6 +252,50 @@ class Artist:
         self.members = self._fetch_members()
         self.akas = self._fetch_akas()
         self.notes = self._fetch_notes()
+        self.releases =self.ReleaseCollection(self._soup)
+
+    class ReleaseCollection:
+        def __init__(self, artist_soup) -> None:
+            self.albums = self._fetch_releases("s")
+            self.live_albums = self._fetch_releases("l")
+            self.eps = self._fetch_releases("e")
+            self.compilations = self._fetch_releases("c")
+            self.singles = self._fetch_releases("i")
+            self.video_releases = self._fetch_releases("d")
+            self.unauthorized_releases = self._fetch_releases("b")
+            self.mixtapes = self._fetch_releases("m")
+            self.music_video = self._fetch_releases("o")
+            self.dj_mixes = self._fetch_releases("j")
+            self.additional_releases = self._fetch_releases("x")
+
+        @property
+        def bootlegs(self):
+            return self.unauthorized_releases
+
+        def _fetch_releases(self, type_of_release):
+            releases_elem = self._soup.find(id="disco_type_" + type_of_release)
+
+            if not releases_elem:
+                return None
+
+            def get_release_date(elem):
+                if not elem.get("title"):
+                    return None
+                
+                date_components_count = elem["title"].count(" ") + 1
+                date_formating = {1: "%Y",
+                                2: "%B %Y",
+                                3: "%d %B %Y"}
+                
+                return datetime.strptime(elem["title"], date_formating[date_components_count])
+
+            return [SimpleRelease(name=release.find(class_="disco_info").contents[0]["title"],
+                                  url= ROOT_URL + release.find(class_="disco_info").contents[0]["href"],
+                                  release_date=get_release_date(release.find(class_="disco_subline")),
+                                  number_of_ratings=release.find(class_="disco_ratings").text or None,
+                                  number_of_rewviews=release.find(class_="disco_reviews").text or None,
+                                  average_rating=float(release.find(class_="disco_avg_rating").text)
+                                  ) for release in releases_elem[1::2]]
 
     @property
     def birth_date(self):
@@ -396,10 +440,10 @@ class Release:
         self.url = url
         self.title = self._fetch_title()
         self.artists = self._fetch_artists()
+        self.artist_name = self._fetch_artist_name()
         self.average_rating = self._fetch_average_rating()
         self.number_of_ratings = self._fetch_number_of_ratings()
         self.number_of_reviews = self._fetch_number_of_reviews()
-        #self._collaboration_symbol = None
         self.release_date = self._fetch_release_date()
         self.recording_date = self._fetch_recording_date()
         self.type = self._fetch_type()
@@ -528,6 +572,13 @@ class Release:
         outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
         artists_elem = outer_elem.find_all("a", class_="artist")
         return [SimpleArtist(name=artist.text, url=ROOT_URL+artist["href"]) for artist in artists_elem]
+    
+    def _fetch_artist_name(self):
+        outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
+        if collab_name := outer_elem.find(class_="credited_name"):
+            return collab_name.text
+        else:
+            return outer_elem.text
     
     def _fetch_average_rating(self):
         if average_rating_elem := self._soup.find("span", class_="avg_rating"):
@@ -919,6 +970,13 @@ class SimpleArtist(SimpleEntity):
             raise NoURL("No URL is associated with this artist.")
 
 class SimpleRelease(SimpleEntity):
+    def __init__(self, *, name=None, release_date=None, average_rating=None, number_of_ratings=None, number_of_reviews=None, url=None):
+        super().__init__(name=name, url=url)
+        self.release_date = release_date
+        self.average_rating = average_rating
+        self.number_of_ratings = number_of_ratings
+        self.number_of_reviews = number_of_reviews
+
     def get_release(self):
         return Release(self.url)
     
@@ -978,11 +1036,12 @@ class ReleaseType:
     comp = "comp"
     single = "single"
     video = "video"
-    unauth = "unauth"
+    unauthorized = "unauth"
+    bootleg = "unauth"
     mixtape = "mixtape"
-    musicvideo = "musicvideo"
-    djmix = "djmix"
-    additional = "addicional"
+    music_video = "musicvideo"
+    dj_mix = "djmix"
+    additional = "additional"
 
 class Language:
     # ISO 639-1 standard languages
