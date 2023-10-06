@@ -240,6 +240,7 @@ class Artist:
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.url = url
         self.name = self._fetch_name()
+        self.localized_name = self._fetch_localized()
         #self.type = self._fetch_type()
         self._start_date_location = self._fetch_start_date_location()
         self.start_date = self._start_date_location['date']
@@ -251,8 +252,10 @@ class Artist:
         self.genres = self._fetch_genres()
         self.members = self._fetch_members()
         self.akas = self._fetch_akas()
+        self.related_artists = self._fetch_related()
         self.notes = self._fetch_notes()
-        self.releases =self.ReleaseCollection(self._soup)
+        self.discography = self.ReleaseCollection(self._soup)
+        self._credits = None
 
     class ReleaseCollection:
         def __init__(self, artist_soup) -> None:
@@ -312,12 +315,23 @@ class Artist:
     @property
     def disbanded_date(self):
         return self.end_date
+    
+    @property
+    def credits(self):
+        if not self._credits:
+            self._credits = self._fetch_credits()
+        return self._credits
 
     def _fetch_name(self):
         try:
             return self._soup.find("h1", class_="artist_name_hdr").text
         except AttributeError:
             raise ParseError("No artist name was found.")
+        
+    def _fetch_localized(self):
+        localized_elem = self._soup.find("span", {"style":"margin-left:5px;font-size:0.7em;color:var(--mono-6);"})
+        if localized_elem:
+            return localized_elem.text
         
     def _fetch_location(self, date_location_elem):
         if location_elem := date_location_elem.find("a", class_="location"):
@@ -407,10 +421,33 @@ class Artist:
 
             return akas
         
+    def _fetch_related(self):
+        if related_div := self._soup.find("div", class_="info_hdr", string="Related Artists"):
+            related_elem = related_div.find_next_sibling()
+            artist_elems = related_elem.find_all("a")
+            return [SimpleArtist(name=artist.text, url=artist["href"]) for artist in artist_elems]
+        
     def _fetch_notes(self):
         if notes_div := self._soup.find("div", class_="info_hdr", string="Notes"):
             notes_elem = notes_div.find_next_sibling()
             return notes_elem.text
+
+    def _fetch_credits(self):
+        credits_url = (self.url + "/credits/").replace("//", "/")
+        credits_response = requests.get(credits_url, headers= HEADERS)
+        if credits_response.status_code != 200:
+            raise RequestFailed(f"Credits request failed with status code {self._cached_rym_response.status_code}")
+        credits_soup = bs4.BeautifulSoup(credits_response.content, "html.parser")
+        credited_releases = credits_soup.find_all(class_="disco_release")
+
+        def get_roles(elem):
+            return [Role(name=role) for role in elem.text.split(",")]
+
+        return [CreditedRelease(name=release.find(class_="album").text,
+                                url=release.find(class_="album")["href"],
+                                roles=get_roles(release.find(class_="disco_classical_role"))
+                                ) for release in credited_releases]
+
 
     def __str__(self):
         return self.name
@@ -711,11 +748,17 @@ class Release:
 
         credits_elem = self._soup.find(id="credits_")
         credited_artists = list()
+
         for artist in credits_elem[::2]:
             role_elems = credits_elem.contents[0].find_all(class_="role_name")
             roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.contents[1].text)) for role in role_elems]
+            
+            url = str()
+            if artist.contents[0].get("href"):
+                url = ROOT_URL+artist.contents[0].get("href")
+
             credited_artists.append(CreditedArtist(name=artist.contents[0].text, 
-                                                       url=ROOT_URL+artist.contents[0].get("href"),
+                                                       url=url,
                                                        roles=roles))
 
 
@@ -999,6 +1042,10 @@ class CreditedArtist(SimpleArtist):
     def __init__(self, *, name, url=None, roles):
         super().__init__(name=name, url=url)
         self.roles = roles
+
+class CreditedRelease(CreditedArtist):
+    def get_release(self):
+        return Release(self.url)
 
 class Role:
     def __init__(self, *, name, tracks=None, credited_artist= None) -> None:
