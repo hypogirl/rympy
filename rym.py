@@ -24,6 +24,46 @@ class RequestFailed(Exception):
 class NoContent(Exception):
     pass
 
+class EntryCollection:
+    @sleep_and_retry
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
+    def __init__(self, url, pages_class) -> None:
+        self.init_url = url
+        self.current_url = url
+        self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
+        if self._cached_rym_response.status_code != 200:
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.current_page = 1
+        self.max_page = self._fetch_max_page(pages_class)
+        if self.current_page > self.max_page:
+            raise NoContent("This release has no lists.")
+        self.entries = self._fetch_entries(init=True)
+
+    def _fetch_max_page(self, pages_class):
+        try:
+            return int(self._soup.find_all("a", class_=pages_class)[-1].text)
+        except IndexError:
+            return 0
+        
+    def load_more_entries(self):
+        self.current_page += 1
+        self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
+        self.entries += self._fetch_entries()
+        return self
+    
+    def _fetch_entries(self, init=False):
+        if self.current_page > self.max_page:
+            raise NoContent("No more pages to be loaded.")
+        
+        if not init:
+            self._cached_rym_response = requests.get(self.current_url, headers= HEADERS)
+            if self._cached_rym_response.status_code != 200:
+                raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
+            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        
+        self._specific_fetch()
+
 class Chart:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
@@ -35,7 +75,8 @@ class Chart:
                  languages_excluded=None, descriptors=None,
                  descriptors_excluded=None, include_subgenres=True,
                  contain_all_genres=False) -> None:
-        
+        self.init_url = self._fetch_url()
+        super().__init__(self.init_url, "ui_pagination_btn ui_pagination_number")
         self.type = chart_type
         self.release_types = release_types
         self.year_range = year_range
@@ -51,18 +92,6 @@ class Chart:
         self.descriptors_excluded = descriptors_excluded
         self.include_subgenres = include_subgenres
         self.contain_all_genres = contain_all_genres
-
-        self.init_url = self._fetch_url()
-        self.current_url = self.init_url
-        self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
-        if self._cached_rym_response.status_code != 200:
-            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
-        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        self.current_page = 1
-        self.max_page = self._fetch_max_page()
-        if self.current_page > self.max_page:
-            raise NoContent("The requested chart has no entries.")
-        self.content = self._fetch_entries(init=True)
 
     def _fetch_url(self):
         release_types_str = str()
@@ -96,41 +125,17 @@ class Chart:
                     url+= f"/d:-{',-'.join(field[1])}"
 
         return url + "/1/"
-    
-    def _fetch_max_page(self):
-        try:
-            return int(self._soup.find_all("a", class_= "ui_pagination_btn ui_pagination_number")[-1].text)
-        except IndexError:
-            return 0
-        
-    def _fetch_entries(self, init=False):
-        if self.current_page > self.max_page:
-            raise NoContent("No more pages to be loaded.")
-        
-        if not init:
-            self._cached_rym_response = requests.get(self.current_url, headers= HEADERS)
-            if self._cached_rym_response.status_code != 200:
-                raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
-            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-        
+
+    def _specific_fetch(self):
         chart_elem = self._soup.find("section", id="page_charts_section_charts").contents
-        entries = [SimpleRelease(
-                        title=(entry.find("div", class_= "page_charts_section_charts_item_credited_links_primary")
-                            .text.replace("\n", "") +
-                            " - " +
-                            entry.find("div", class_= "page_charts_section_charts_item_title")
-                            .text.replace("\n", "")),
-                        url=ROOT_URL + entry.contents[1].contents[1]["href"]
-                    ) for entry in chart_elem[:-1:2]]
+        entries = [SimpleRelease(title=(entry.find("div", class_="page_charts_section_charts_item_credited_links_primary")
+                                        .text.replace("\n", "") + " - " + entry.find("div", class_="page_charts_section_charts_item_title")
+                                        .text.replace("\n", "")),
+                                 url=ROOT_URL + entry.contents[1].contents[1]["href"]
+                                 ) for entry in chart_elem[:-1:2]]
         
         return entries
     
-    def load_more_entries(self):
-        self.current_page += 1
-        self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
-        self.content += self._fetch_entries()
-        return self
-
     def __str__(self):
         return self._get_representation()
 
@@ -587,47 +592,10 @@ class Release:
         self._lists = None
         self._id = self._fetch_id()
 
-    class EntryCollection:
-        @sleep_and_retry
-        @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
-        def __init__(self, url) -> None:
-            self.init_url = url
-            self.current_url = url
-            self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
-            if self._cached_rym_response.status_code != 200:
-                raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
-            self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-            self.current_page = 1
-            self.max_page = self._fetch_max_page()
-            if self.current_page > self.max_page:
-                raise NoContent("This release has no lists.")
-            self.entries = self._fetch_entries(init=True)
-
-        def _fetch_max_page(self):
-            try:
-                return int(self._soup.find_all("a", class_="navlinknum")[-1].text)
-            except IndexError:
-                return 0
-            
-        def load_more_entries(self):
-            self.current_page += 1
-            self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
-            self.entries += self._fetch_entries()
-            return self
-        
-        def _fetch_entries(self, init=False):
-            if self.current_page > self.max_page:
-                raise NoContent("No more pages to be loaded.")
-            
-            if not init:
-                self._cached_rym_response = requests.get(self.current_url, headers= HEADERS)
-                if self._cached_rym_response.status_code != 200:
-                    raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
-                self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
-
-            self._specific_fetch()
-
     class Lists(EntryCollection):
+        def __init__(self, url):
+            super().__init__(url, "navlinknum")
+            
         def _specific_fetch(self):
             lists_elem = self._soup.find("ul", class_="lists expanded").contents
             return [SimpleList(
@@ -636,6 +604,9 @@ class Release:
                 ) for entry in lists_elem[1::2]]
         
     class Reviews(EntryCollection):
+        def __init__(self, url):
+            super().__init__(url, "navlinknum")
+
         def _specific_fetch(self):
             curr_elem = self._soup.find(class_="review_list")
             reviews = list()
