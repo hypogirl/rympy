@@ -286,7 +286,7 @@ class Artist:
         
         def create_simple_release(self, release):
             def get_release_date(elem):
-                if not elem.get("title"):
+                if not elem:
                     return None
                 
                 date_components_count = elem["title"].count(" ") + 1
@@ -561,6 +561,9 @@ class Track:
     def __eq__(self, other) -> bool:
         return self.number == other.number and self.release == other.release
 
+class Label:
+    pass
+
 class Release:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
@@ -587,6 +590,7 @@ class Release:
         self.tracklist = self._fetch_tracks()
         self.length = self._fetch_length()
         self.credited_artists = self._fetch_credited_artists()
+        self.issues = self._fetch_issues()
         self.__update_tracks()
         self._reviews = None
         self._lists = None
@@ -636,6 +640,11 @@ class Release:
                     ))
                 except AttributeError:
                     return reviews
+
+    class ReleaseIssue:
+        def __init__(self, *, title, url, release_format, label, issue_number, attributes) -> None:
+            self.title = title
+        pass
     
     @property
     def lists(self):
@@ -877,6 +886,33 @@ class Release:
         except TypeError:
             raise ParseError("No ID was found for this release.")
         
+    def _fetch_issues(self):
+        issues_elems = self._soup.find_all(class_="issue_info")[1:]
+        
+        def get_release_date(elem):
+                if not elem:
+                    return None
+                
+                date_components_count = elem["title"].count(" ") + 1
+                date_formating = {1: "%Y",
+                                2: "%B %Y",
+                                3: "%d %B %Y"}
+                
+                return datetime.strptime(elem["title"], date_formating[date_components_count])
+        
+        def get_issue_number(elem_text):
+            return elem_text.split('•')[1].strip()
+        
+        return [SimpleReleaseIssue(title= issue.find("a")["title"],
+                                   url= issue.find("a")["href"],
+                                   release_date= get_release_date(issue.find("issue_year")),
+                                   format= issue.find("issue_formats")["title"],
+                                   label= SimpleLabel(name= issue.find(class_= "label").text,
+                                                      url= ROOT_URL + issue.find(class_= "label")["href"]),
+                                   issue_number= get_issue_number(issue.find(class_= "label").next_sibling.text),
+                                   attributes= issue.find(class_="attribute").text.split(", ")
+                                   ) for issue in issues_elems]
+        
     def __str__(self):
         return self.title
 
@@ -1092,6 +1128,22 @@ class SimpleUser(SimpleEntity):
     def get_user(self):
         return User(username=self.name, url=self.url)
     
+class SimpleReleaseIssue(SimpleEntity):
+    def __init__(self, *, title, url, release_format, release_date, label, issue_number, attributes) -> None:
+        super().__init__(title= title, url=url)
+        self.format = release_format
+        self.release_date = release_date
+        self.label = label
+        self.issue_number = issue_number
+        self.attributes = attributes
+
+    def get_release_issue(self):
+        return Release.ReleaseIssue(url=self.url)
+    
+class SimpleLabel(SimpleEntity):
+    def get_label(self):
+        return Label(self.url)
+
 class BandMember(SimpleArtist):
     def __init__(self, *, name, instruments, years_active, aka, url=None):
         super().__init__(name=name, url=url)
