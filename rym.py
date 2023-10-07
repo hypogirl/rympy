@@ -583,8 +583,8 @@ class Release:
         self.length = self._fetch_length()
         self.credited_artists = self._fetch_credited_artists()
         self.__update_tracks()
-        self.reviews = self._fetch_reviews()
-        self.lists = None
+        self._reviews = None
+        self._lists = None
         self._id = self._fetch_id()
 
     class EntryCollection:
@@ -905,7 +905,7 @@ class Release:
             return id_elem["value"][1:-1]
         except TypeError:
             raise ParseError("No ID was found for this release.")
-
+        
     def __str__(self):
         return self.title
 
