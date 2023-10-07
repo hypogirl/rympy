@@ -255,32 +255,31 @@ class Artist:
         self.related_artists = self._fetch_related()
         self.notes = self._fetch_notes()
         self.discography = self.ReleaseCollection(self._soup)
+        self.appears_on = self.FeatureCollection(self._soup)
         self._credits = None
 
-    class ReleaseCollection:
-        def __init__(self, artist_soup) -> None:
-            self.albums = self._fetch_releases("s")
-            self.live_albums = self._fetch_releases("l")
-            self.eps = self._fetch_releases("e")
-            self.compilations = self._fetch_releases("c")
-            self.singles = self._fetch_releases("i")
-            self.video_releases = self._fetch_releases("d")
-            self.unauthorized_releases = self._fetch_releases("b")
-            self.mixtapes = self._fetch_releases("m")
-            self.music_video = self._fetch_releases("o")
-            self.dj_mixes = self._fetch_releases("j")
-            self.additional_releases = self._fetch_releases("x")
+    class GeneralCollection:
+        def __init__(self, artist_soup: bs4.BeautifulSoup) -> None:
+            self._soup = artist_soup
+            self.albums = None
+            self.live_albums = None
+            self.eps = None
+            self.compilations = None
+            self.singles = None
+            self.video_releases = None
+            self.unauthorized_releases = None
+            self.mixtapes = None
+            self.music_videos = None
+            self.dj_mixes = None
+            self.additional_releases = None
+            self.other = None
+            self.initialize_attributes()
 
         @property
         def bootlegs(self):
             return self.unauthorized_releases
-
-        def _fetch_releases(self, type_of_release):
-            releases_elem = self._soup.find(id="disco_type_" + type_of_release)
-
-            if not releases_elem:
-                return None
-
+        
+        def create_simple_release(self, release):
             def get_release_date(elem):
                 if not elem.get("title"):
                     return None
@@ -291,14 +290,105 @@ class Artist:
                                 3: "%d %B %Y"}
                 
                 return datetime.strptime(elem["title"], date_formating[date_components_count])
-
-            return [SimpleRelease(name=release.find(class_="disco_info").contents[0]["title"],
+            
+            return SimpleRelease(name=release.find(class_="disco_info").contents[0]["title"],
                                   url= ROOT_URL + release.find(class_="disco_info").contents[0]["href"],
                                   release_date=get_release_date(release.find(class_="disco_subline")),
                                   number_of_ratings=release.find(class_="disco_ratings").text or None,
                                   number_of_rewviews=release.find(class_="disco_reviews").text or None,
-                                  average_rating=float(release.find(class_="disco_avg_rating").text)
-                                  ) for release in releases_elem[1::2]]
+                                  average_rating=float(release.find(class_="disco_avg_rating").text))
+
+    class ReleaseCollection(GeneralCollection):
+        def initialize_attributes(self):
+            self.albums = self._fetch_releases("s")
+            self.live_albums = self._fetch_releases("l")
+            self.eps = self._fetch_releases("e")
+            self.compilations = self._fetch_releases("c")
+            self.singles = self._fetch_releases("i")
+            self.video_releases = self._fetch_releases("d")
+            self.unauthorized_releases = self._fetch_releases("b")
+            self.mixtapes = self._fetch_releases("m")
+            self.music_videos = self._fetch_releases("o")
+            self.dj_mixes = self._fetch_releases("j")
+            self.additional_releases = self._fetch_releases("x")
+
+        def _fetch_releases(self, type_of_release):
+            releases_elem = self._soup.find(id="disco_type_" + type_of_release)
+
+            if not releases_elem:
+                return None
+
+            return [self.create_simple_release(release) for release in releases_elem.find_all(class_="disco_release")]
+        
+    class FeatureCollection(GeneralCollection):
+        def initialize_attributes(self):
+            
+            releases_elem = self._soup.find(id="disco_type_a")
+
+            if not releases_elem:
+                return None
+
+            for release in releases_elem.find_all(class_="disco_release"):
+                release_object = self.create_simple_release(release)
+               
+                release_type_init = release.find(class_="disco_subline").find(class_="subtext").text
+                release_type = release_type_init.split('•')[1].strip()
+                
+                match release_type:
+                    case "Album":
+                        if self.albums is None:
+                            self.albums = list()
+                        self.albums.append(release_object)
+                    
+                    case "EP":
+                        if self.eps is None:
+                            self.eps = list()
+                        self.eps.append(release_object)
+                    
+                    case "Single":
+                        if self.singles is None:
+                            self.singles = list()
+                        self.singles.append(release_object)
+                    
+                    case "Mixtape":
+                        if self.mixtapes is None:
+                            self.mixtapes = list()
+                        self.mixtapes.append(release_object)
+                    
+                    case "Music video":
+                        if self.music_videos is None:
+                            self.music_videos = list()
+                        self.music_video.append(release_object)
+                    
+                    case "DJ Mix":
+                        if self.dj_mixes is None:
+                            self.dj_mixes = list()
+                        self.dj_mixes.append(release_object)
+                    
+                    case "Video":
+                        if self.video_releases is None:
+                            self.video_releases = list()
+                        self.video_releases.append(release_object)
+                    
+                    case "Compilation":
+                        if self.compilations is None:
+                            self.compilations = list()
+                        self.compilations.append(release_object)
+                    
+                    case "Additional release":
+                        if self.additional_releases is None:
+                            self.additional_releases = list()
+                        self.additional_releases.append(release_object)
+                    
+                    case "Bootleg/Unauthorized":
+                        if self.unauthorized_releases is None:
+                            self.unauthorized_releases = list()
+                        self.unauthorized_releases.append(release_object)
+                    
+                    case _:
+                        if self.other is None:
+                            self.other = list()
+                        self.other.append(release_object)
 
     @property
     def birth_date(self):
