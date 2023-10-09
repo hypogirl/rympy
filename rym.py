@@ -640,11 +640,6 @@ class Release:
                     ))
                 except AttributeError:
                     return reviews
-
-    class ReleaseIssue:
-        def __init__(self, *, title, url, release_format, label, issue_number, attributes) -> None:
-            self.title = title
-        pass
     
     @property
     def lists(self):
@@ -886,9 +881,7 @@ class Release:
         except TypeError:
             raise ParseError("No ID was found for this release.")
         
-    def _fetch_issues(self):
-        issues_elems = self._soup.find_all(class_="issue_info")[1:]
-        
+    def _fetch_issue_info(self, issue):
         def get_release_date(elem):
                 if not elem:
                     return None
@@ -900,18 +893,57 @@ class Release:
                 
                 return datetime.strptime(elem["title"], date_formating[date_components_count])
         
-        def get_issue_number(elem_text):
-            return elem_text.split('•')[1].strip()
+        release_date = get_release_date(issue.find("issue_year"))
+
+        if label_elem := issue.find(class_="label"):
+            label = SimpleLabel(name=label_elem.text,
+                                url=ROOT_URL + label_elem["href"])
+            issue_number = label_elem.next_sibling.text.split('•')[1].strip()
+        else:
+            label = issue_number = None
+
+        countries_elem = issue.find("issue_countries") 
+        countries = [country["title"] for country in countries_elem.find_all(class_="ui_flag")]
+
+        title = issue.find("a")["title"]
+        url = issue.find("a")["href"]
+        format = issue.find("issue_formats")["title"]
+        attributes = issue.find(class_="attribute").text.split(", ") if issue.find(class_="attribute") else None
+
+        return {
+            "title": title,
+            "url": url,
+            "release_date": release_date,
+            "format": format,
+            "label": label,
+            "issue_number": issue_number,
+            "attributes": attributes,
+            "countries": countries
+            }
+            
+
+    def _fetch_issues(self):
+        issues_elems = self._soup.find_all(class_="issue_info")[1:]
         
-        return [SimpleReleaseIssue(title= issue.find("a")["title"],
-                                   url= issue.find("a")["href"],
-                                   release_date= get_release_date(issue.find("issue_year")),
-                                   format= issue.find("issue_formats")["title"],
-                                   label= SimpleLabel(name= issue.find(class_= "label").text,
-                                                      url= ROOT_URL + issue.find(class_= "label")["href"]),
-                                   issue_number= get_issue_number(issue.find(class_= "label").next_sibling.text),
-                                   attributes= issue.find(class_="attribute").text.split(", ")
-                                   ) for issue in issues_elems]
+        release_issues_list = list()
+
+        for issue in issues_elems:
+            issue_info = self._fetch_issue_info(issue)
+
+            release_issue = SimpleReleaseIssue(
+                title=issue_info["title"],
+                url=issue_info,
+                release_date=issue_info["release_date"],
+                format=issue_info,
+                label=issue_info["label"],
+                issue_number=issue_info["issue_number"],
+                attributes=issue_info["attribute"],
+                countries=issue_info["countries"]
+            )
+            
+            release_issues_list.append(release_issue)
+
+        return release_issues_list
         
     def __str__(self):
         return self.title
@@ -922,6 +954,24 @@ class Release:
     def __eq__(self, other):
         return self.url == other.url
     
+class ReleaseIssue(Release):
+    def __init__(self, url) -> None:
+        super().__init__(url=url)
+        issue_elem = self._fetch_issue_elem()
+        issue_info = self._fetch_issue_info(issue_elem)
+        self.format = issue_info["format"]
+        self.label = issue_info["label"]
+        self.issue_number = issue_info["issue_number"]
+        self.attributes = issue_info["attributes"]
+        self.countries = issue_info["countries"]
+
+    def _fetch_issue_elem(self):
+        issues_elems = self._soup.find_all(class_="issue_info")[1:]
+
+        for issue in issues_elems:
+            if (ROOT_URL + issue.find("a")["href"]) == self.url:
+                return issue
+
 class User:
     def __init__(self, *, username=None, url=None) -> None:
         self.username = username or re.search(r"[\w+|_]+$", url).group()
@@ -1129,13 +1179,14 @@ class SimpleUser(SimpleEntity):
         return User(username=self.name, url=self.url)
     
 class SimpleReleaseIssue(SimpleEntity):
-    def __init__(self, *, title, url, release_format, release_date, label, issue_number, attributes) -> None:
+    def __init__(self, *, title, url, release_format, release_date, label=None, issue_number=None, attributes=None, countries=None) -> None:
         super().__init__(title= title, url=url)
         self.format = release_format
         self.release_date = release_date
         self.label = label
         self.issue_number = issue_number
         self.attributes = attributes
+        self.countries = countries
 
     def get_release_issue(self):
         return Release.ReleaseIssue(url=self.url)
