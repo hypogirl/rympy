@@ -62,9 +62,9 @@ class EntryCollection:
                 raise RequestFailed(f"Loading next page failed with status code {self._cached_rym_response.status_code}.")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         
-        self._specific_fetch()
+        return self._specific_fetch()
 
-class Chart:
+class Chart(EntryCollection):
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, *, chart_type, release_types,
@@ -561,8 +561,139 @@ class Track:
     def __eq__(self, other) -> bool:
         return self.number == other.number and self.release == other.release
 
+class Distributor:
+    @sleep_and_retry
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
+    def __init__(self, url) -> None:
+        self.url = url
+        self._cached_rym_response = requests.get(url, headers= HEADERS)
+        if self._cached_rym_response.status_code != 200:
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.name = self._fetch_name()
+        self.logo = self._fetch_logo()
+        self.profile = self._fetch_profile()
+
+    def _fetch_name(self):
+        return self._soup.find(id="wiki_content").find(class_="bubble_header").contents[0].text
+    
+    def _fetch_logo(self):
+        return self._soup.find(class_="wiki-image")["src"]
+    
+    def _fetch_profile(self):
+        init_elem = self._soup.find("h2").text
+        curr_elem = init_elem
+        profile_text = str()
+        while True:
+            try:
+                curr_elem = init_elem.find_next_sibling()
+            except AttributeError:
+                return profile_text
+            else:
+                profile_text = curr_elem.text if curr_elem.name != "br" else "\n"
+
 class Label:
-    pass
+    @sleep_and_retry
+    @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
+    def __init__(self, url) -> None:
+        self.url = url
+        self._cached_rym_response = requests.get(url, headers= HEADERS)
+        if self._cached_rym_response.status_code != 200:
+            raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
+        self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
+        self.name = self._fetch_name()
+        self.logo = self._fetch_logo()
+        self.genres = self._fetch_genres()
+        self.number_of_releases = self._fetch_no_releases()
+        self.founder = self._fetch_founder()
+        self.start_date = self._fetch_start_date()
+        self.start_location = self._fetch_start_location()
+        self.links = self._fetch_links()
+        self.address = self._fetch_address()
+        self.distributors = self._fetch_distributors()
+        self.notes = self._fetch_notes()
+        self._chart = None
+    
+    @property
+    def chart(self):
+        if not self._chart:
+            self._chart = self._fetch_chart()
+        return self._chart
+
+    def _fetch_name(self):
+        try:
+            return self._soup.find(class_="page_company_music_section_name_inner").find("h1").text
+        except AttributeError:
+            raise ParseError("No label name was found.")
+        
+    def _fetch_logo(self):
+        return self._soup.find("picture").find_all("img")[-1]["src"]
+    
+    def _fetch_genres(self):
+        genre_list = [genre.strip() for genre in self._soup.find(class_="page_company_music_genres").split(", ")]
+        return [SimpleGenre(name=genre) for genre in genre_list]
+    
+    def _fetch_no_releases(self):
+        number_elem_text = self._soup.find(class_="page_company_music_release_count").text.replace(",", "")
+        return int(re.search(r'\d+', number_elem_text).group())
+    
+    def _fetch_founder(self):
+        if artist_elem := self._soup.find(class_="page_company_music_main_info_founded_main").find(class_="artist"):
+            return SimpleArtist(name=artist_elem.text,
+                                url=ROOT_URL+artist_elem["href"])
+        
+    def _fetch_start_date(self):
+        date_text = self._soup.find(class_="page_company_music_main_info_founded_main").find("b").text
+        return datetime.strptime(date_text, "%Y")
+    
+    def _fetch_start_location(self):
+        location_text = self._soup.find(class_="page_company_music_main_info_founded_location").text.replace("\n","").strip()
+        return location_text.split(", ")
+    
+    def _fetch_links(self):
+        return {link["aria-label"].lower():link["href"] for link in self._soup.find(class_="links").find_all("a")}
+    
+    def _fetch_address(self):
+        address_text_list = ["\n" if elem.name == "br" else elem.text for elem in self._soup.find(class_="address").contents]
+        return "".join(address_text_list)
+    
+    def _fetch_distributors(self):
+        if not(distributors_title := self._soup.find("td", string="Distributors")):
+            return None
+        
+        distributors_elem = distributors_title.find_next_sibling()
+        distributors_elems_list = distributors_elem.contents[0].contents
+        distributors_elems_urls = [distributor for distributor in distributors_elems_list if isinstance(distributor, bs4.Tag) and distributor.get("href")]
+        distributors_elem_raw = distributors_elem.text
+        distributors_name_info = re.findall(r" ?([\w .]+) (?:\[([\w -]+)\])", distributors_elem_raw)
+        distributors = list()
+
+        urls_index = 0
+        for name, years in distributors_name_info:
+            url = None
+            if urls_index < len(distributors_elems_urls) and distributors_elems_urls[urls_index].text == name:
+                url = ROOT_URL + distributors_elems_urls[urls_index]["href"]
+                urls_index += 1
+
+            if "/label/" in url:
+                distributors.append(LabelDistributor(name=name, years=years, url=url))
+            else:
+                distributors.append(SimpleDistributor(name=name, years=years, url=url))
+            
+        return distributors
+
+    def _fetch_notes(self):
+        if notes_elem := self._soup.find("td", string="Notes"):
+            return notes_elem.find_next_sibling().text
+        
+    def _fetch_chart(self):
+        outer_elem = self._soup.find(class_="page_section_charts link_only")
+        if outer_elem:
+            return Chart(ROOT_URL + outer_elem.find("a")["href"])
+        
+        outer_elem = self._soup.find(class_="page_section_charts_header")
+        if outer_elem:
+            return Chart(ROOT_URL + outer_elem.find("a")["href"])
 
 class Release:
     @sleep_and_retry
@@ -1020,7 +1151,7 @@ class User:
         if friends_elem:
             return [SimpleUser(name= friend.text.replace("\n   \n","")) for friend in friends_elem]
         
-class RYMList:
+class RYMList(EntryCollection):
     def __init__(self, url) -> None:
         self.init_url = url
         self.current_url = self.init_url
@@ -1189,11 +1320,25 @@ class SimpleReleaseIssue(SimpleEntity):
         self.countries = countries
 
     def get_release_issue(self):
-        return Release.ReleaseIssue(url=self.url)
+        return ReleaseIssue(self.url)
     
 class SimpleLabel(SimpleEntity):
     def get_label(self):
         return Label(self.url)
+    
+class SimpleDistributor(SimpleEntity):
+    def __init__(self, *, name=None, title=None, url=None, years=None) -> None:
+        super().__init__(name=name, title=title, url=url)
+        if years:
+            self.years = years
+
+    def get_distributor(self):
+        return Distributor(self.url)
+    
+class LabelDistributor(SimpleLabel):
+    def __init__(self, *, name=None, title=None, url=None, years=None) -> None:
+        super().__init__(name=name, title=title, url=url)
+        self.years = years
 
 class BandMember(SimpleArtist):
     def __init__(self, *, name, instruments, years_active, aka, url=None):
