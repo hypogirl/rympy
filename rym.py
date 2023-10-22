@@ -234,6 +234,14 @@ class Genre:
                               url=album.find("a")["href"],
                               cover=album.find("a").find("picture").find("source")["srcset"].replace("\n","").strip().split(" 2x")[0]
                               ) for album in top_ten_elem]
+    
+    def _fetch_lists(self):
+        rym_lists = self._soup.find_all(class_="page_section_lists_list")
+        return [SimpleRYMList(title=rym_list.find(class_="main").text.replace("\n","").strip(),
+                              url=ROOT_URL+rym_list.find(class_="main").find("a")["href"],
+                              author=SimpleUser(name=rym_list.find_all(class_="page_section_lists_list_main_line")[1].find("a").text,
+                                                url=ROOT_URL+rym_list.find_all(class_="page_section_lists_list_main_line")[1].find("a")["href"])
+                              ) for rym_list in rym_lists]
 
     def __str__(self):
         return self.name
@@ -1331,6 +1339,10 @@ class SimpleRelease(SimpleEntity):
         return Release(self.url)
     
 class SimpleRYMList(SimpleEntity):
+    def __init__(self, *, name=None, title=None, url=None, author=None) -> None:
+        super().__init__(name=name, title=title, url=url)
+        self.author = author
+
     def get_list(self):
         return RYMList(self.url)
     
