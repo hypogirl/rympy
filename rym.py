@@ -170,6 +170,7 @@ class Genre:
         self._bottom_chart = None
         self._esoteric_chart = None
         self.top_ten_albums = self._fetch_top_ten()
+        self.lists = self._fetch_lists()
 
     @property
     def top_chart(self):
@@ -227,7 +228,12 @@ class Genre:
         return children_genres or None
     
     def _fetch_top_ten(self):
-        return
+        top_ten_elem = self._soup.find_all(class_="page_section_charts_carousel_item")
+        return [SimpleRelease(name=album.find(class_="release").text,
+                              artist_name=album.find(class_="artist").text,
+                              url=album.find("a")["href"],
+                              cover=album.find("a").find("picture").find("source")["srcset"].replace("\n","").strip().split(" 2x")[0]
+                              ) for album in top_ten_elem]
 
     def __str__(self):
         return self.name
@@ -259,13 +265,13 @@ class Artist:
         self.akas = self._fetch_akas()
         self.related_artists = self._fetch_related()
         self.notes = self._fetch_notes()
-        self.discography = self.ReleaseCollection(self._soup)
-        self.appears_on = self.FeatureCollection(self._soup)
         self._credits = None
+        self.discography = self.ReleaseCollection(self)
+        self.appears_on = self.FeatureCollection(self)
 
     class GeneralCollection:
-        def __init__(self, artist_soup: bs4.BeautifulSoup) -> None:
-            self._soup = artist_soup
+        def __init__(self, artist) -> None:
+            self.artist = artist
             self.albums = None
             self.live_albums = None
             self.eps = None
@@ -285,23 +291,37 @@ class Artist:
             return self.unauthorized_releases
         
         def create_simple_release(self, release):
-            def get_release_date(elem):
-                if not elem:
-                    return None
-                
-                date_components_count = elem["title"].count(" ") + 1
+            date = None
+            if date_elem := release.find(class_="disco_subline"):
+                date_components_count = date_elem["title"].count(" ") + 1
                 date_formating = {1: "%Y",
                                 2: "%B %Y",
                                 3: "%d %B %Y"}
                 
-                return datetime.strptime(elem["title"], date_formating[date_components_count])
+                date = datetime.strptime(date_elem["title"], date_formating[date_components_count])
+
+            artist_name = self.artist.name
+            artists = [self.artist]
+            if collab_elem := self.artist._soup.find(class_="credited_name"):
+                artist_name = collab_elem.contents[0].text
+                artists = [SimpleArtist(name=artist.text, url=ROOT_URL + artist["href"])
+                           if ROOT_URL + artist["href"] != self.artist.url else self.artist
+                           for artist in collab_elem.find_all(class_="disco_sub_artist")]
+            else:
+                artist_elem = release.find(class_="disco_sub_artist")
+                artist_name = artist_elem.text
+                artist_url = ROOT_URL + artist_elem["href"]
+                if artist_url != self.artist.url:
+                    artists = [SimpleArtist(name=artist_name, url=artist_url)]
             
             return SimpleRelease(name=release.find(class_="disco_info").contents[0]["title"],
-                                  url= ROOT_URL + release.find(class_="disco_info").contents[0]["href"],
-                                  release_date=get_release_date(release.find(class_="disco_subline")),
-                                  number_of_ratings=release.find(class_="disco_ratings").text or None,
-                                  number_of_rewviews=release.find(class_="disco_reviews").text or None,
-                                  average_rating=float(release.find(class_="disco_avg_rating").text))
+                                 artist_name=artist_name,
+                                 artists=artists,
+                                 url= ROOT_URL + release.find(class_="disco_info").contents[0]["href"],
+                                 release_date=date,
+                                 number_of_ratings=release.find(class_="disco_ratings").text or None,
+                                 number_of_rewviews=release.find(class_="disco_reviews").text or None,
+                                 average_rating=float(release.find(class_="disco_avg_rating").text))
 
     class ReleaseCollection(GeneralCollection):
         def initialize_attributes(self):
@@ -316,9 +336,10 @@ class Artist:
             self.music_videos = self._fetch_releases("o")
             self.dj_mixes = self._fetch_releases("j")
             self.additional_releases = self._fetch_releases("x")
+            self.various_artists_compilations = self._fetch_releases("v")
 
         def _fetch_releases(self, type_of_release):
-            releases_elem = self._soup.find(id="disco_type_" + type_of_release)
+            releases_elem = self.artist._soup.find(id="disco_type_" + type_of_release)
 
             if not releases_elem:
                 return None
@@ -328,7 +349,7 @@ class Artist:
     class FeatureCollection(GeneralCollection):
         def initialize_attributes(self):
             
-            releases_elem = self._soup.find(id="disco_type_a")
+            releases_elem = self.artist._soup.find(id="disco_type_a")
 
             if not releases_elem:
                 return None
@@ -363,7 +384,7 @@ class Artist:
                     case "Music video":
                         if self.music_videos is None:
                             self.music_videos = list()
-                        self.music_video.append(release_object)
+                        self.music_videos.append(release_object)
                     
                     case "DJ Mix":
                         if self.dj_mixes is None:
@@ -581,7 +602,7 @@ class Distributor:
         return self._soup.find(class_="wiki-image")["src"]
     
     def _fetch_profile(self):
-        init_elem = self._soup.find("h2").text
+        init_elem = self._soup.find("h2")
         curr_elem = init_elem
         profile_text = str()
         while True:
@@ -733,7 +754,7 @@ class Release:
             
         def _specific_fetch(self):
             lists_elem = self._soup.find("ul", class_="lists expanded").contents
-            return [SimpleList(
+            return [SimpleRYMList(
                 title= entry.contents[3].contents[1].contents[0].text,
                 url= ROOT_URL + entry.contents[3].contents[1].contents[0]["href"]
                 ) for entry in lists_elem[1::2]]
@@ -800,8 +821,13 @@ class Release:
             return re.findall(r"(.+)\n +\nBy .+", release_title_elem.text)[0]
         except IndexError:
             raise ParseError("No title was found for this release.")
-        
+
     def _fetch_artists(self):
+        if "/comp/various-artists/" in self.url:
+            self.various_artists = True
+            return [SimpleArtist(name=artist.text,url=ROOT_URL+artist["href"]) for artist in self._soup.find(id="tracks").find_all("a")]
+        
+        self.various_artists = False
         outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
         artists_elem = outer_elem.find_all("a", class_="artist")
         return [SimpleArtist(name=artist.text, url=ROOT_URL+artist["href"]) for artist in artists_elem]
@@ -1179,7 +1205,7 @@ class RYMList(EntryCollection):
             raise NoContent("No more pages to be loaded.")
 
         list_elem = self._soup.find("table", {"id":"user_list").contents
-        entries = [SimpleList() for entry in list_elem[:-1:2]]
+        entries = [SimpleRYMList() for entry in list_elem[:-1:2]]
         
         return entries'''
 
@@ -1291,17 +1317,20 @@ class SimpleArtist(SimpleEntity):
             raise NoURL("No URL is associated with this artist.")
 
 class SimpleRelease(SimpleEntity):
-    def __init__(self, *, name=None, release_date=None, average_rating=None, number_of_ratings=None, number_of_reviews=None, url=None):
+    def __init__(self, *, name=None, release_date=None, average_rating=None, number_of_ratings=None, number_of_reviews=None, url=None, cover=None, artist_name=None, simple_artists=None):
         super().__init__(name=name, url=url)
+        self.artist_name = artist_name
+        self.simple_artists = simple_artists
         self.release_date = release_date
         self.average_rating = average_rating
         self.number_of_ratings = number_of_ratings
         self.number_of_reviews = number_of_reviews
+        self.cover = cover
 
     def get_release(self):
         return Release(self.url)
     
-class SimpleList(SimpleEntity):
+class SimpleRYMList(SimpleEntity):
     def get_list(self):
         return RYMList(self.url)
     
