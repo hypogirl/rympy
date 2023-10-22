@@ -171,6 +171,39 @@ class Genre:
         self._esoteric_chart = None
         self.top_ten_albums = self._fetch_top_ten()
         self.lists = self._fetch_lists()
+        self._oldest_releases = None
+        self._newest_releases = None
+
+    class GenreReleases(EntryCollection):
+        def __init__(self, url):
+            super().__init__(url, "ui_pagination_btn ui_pagination_number")
+        
+        def _specific_fetch(self):
+            release_elems = self._soup.find_all(class_="component_discography_item")
+            return [SimpleRelease(url=ROOT_URL+release.find("a")["href"],
+                                  cover=release.find("a").find("picture").find("source")["srcset"].replace("\n","").strip().split(" 2x")[0],
+                                  title=release.find("span").text.replace("\n",""),
+                                  artist_name=release.find("span").next_sibling.next_sibling.text.replace("\n",""),
+                                  simple_artists=[SimpleArtist(name=artist.text.replace("\n",""),
+                                                               url=ROOT_URL+artist["href"]
+                                                               ) for artist in release.find("span").next_sibling.next_sibling.find_all(class_="artist")["href"]]
+                                  ) for release in release_elems]
+
+    @property
+    def oldest_releases(self):
+        if not self._oldest_releases:
+            self._oldest_releases = self.GenreReleases()
+        return self._oldest_releases
+    
+    @property
+    def newest_releases(self):
+        if not self._newest_releases:
+            self._newest_releases = self.GenreReleases()
+        return self._newest_releases
+    
+    @property
+    def releases(self):
+        return self.oldest_releases
 
     @property
     def top_chart(self):
