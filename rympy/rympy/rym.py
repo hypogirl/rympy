@@ -6,6 +6,7 @@ from typing import List
 import json
 import bs4
 from ratelimit import limits, sleep_and_retry
+from enums import *
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
 ROOT_URL = "https://rateyourmusic.com"
@@ -505,7 +506,7 @@ class Artist:
             if (date_location_elem := self._soup.find("div", class_="info_hdr", string=title)):
                 date_location_info = date_location_elem.find_next_sibling()
                 location = self._fetch_location(date_location_elem)
-                date_text = date_location_info.contents[0].strip[:-1]
+                date_text = date_location_info.contents[0].strip()
                 date_components_count = date_text.count(" ") + 1
                 date_formating = {1: "%Y",
                                 2: "%B %Y",
@@ -521,7 +522,10 @@ class Artist:
         return self._fetch_gen_date_location("Disbanded", "Died")
     
     def _fetch_current_location(self):
-        return self._fetch_gen_date_location("Currently")["location"] or self.start_date
+        if current_date := self._fetch_gen_date_location("Currently"):
+            return current_date["location"]
+        else:
+            return self.start_date
 
     def _fetch_genres(self):
         if genre_div := self._soup.find("div", class_="info_hdr", string="Genres"):
@@ -1331,6 +1335,24 @@ class ReleaseLinks:
         self.soundcloud = soundcloud
         self.apple_music = apple_music
 
+class Role:
+    def __init__(self, *, name, tracks=None, credited_artist= None) -> None:
+        self.name = name
+        self.tracks = tracks
+        self.credited_artist = credited_artist
+
+    def __repr__(self):
+        return self.__get_representation()
+
+    def __str__(self):
+        return self.__get_representation()
+    
+    def __get_representation(self):
+        if self.tracks:
+            return f"{self.name} in {','.join([track.name for track in self.tracks])}"
+        else:
+            return self.name
+        
 class SimpleEntity:
     def __init__(self, *, name=None, title=None, url=None) -> None:
         self.title = name or title
@@ -1429,151 +1451,3 @@ class CreditedArtist(SimpleArtist):
 class CreditedRelease(CreditedArtist):
     def get_release(self):
         return Release(self.url)
-
-class Role:
-    def __init__(self, *, name, tracks=None, credited_artist= None) -> None:
-        self.name = name
-        self.tracks = tracks
-        self.credited_artist = credited_artist
-
-    def __repr__(self):
-        return self.__get_representation()
-
-    def __str__(self):
-        return self.__get_representation()
-    
-    def __get_representation(self):
-        if self.tracks:
-            return f"{self.name} in {','.join([track.name for track in self.tracks])}"
-        else:
-            return self.name
-
-class ChartType:
-    top = "top"
-    bottom = "bottom"
-    esoteric = "esoteric"
-    diverse = "diverse"
-    popular = "popular"
-
-class YearRange:
-    def __init__(self, *, min, max) -> None:
-        self.min = min
-        self.max = max
-
-class ReleaseType:
-    album = "album"
-    ep = "ep"
-    comp = "comp"
-    single = "single"
-    video = "video"
-    unauthorized = "unauth"
-    bootleg = "unauth"
-    mixtape = "mixtape"
-    music_video = "musicvideo"
-    dj_mix = "djmix"
-    additional = "additional"
-
-class Language:
-    # ISO 639-1 standard languages
-    afrikaans = "af"
-    albanian = "sq"
-    amharic = "am"
-    arabic = "ar"
-    armenian = "hy"
-    azerbaijani = "az"
-    basque = "eu"
-    belarusian = "be"
-    bengali = "bn"
-    bosnian = "bs"
-    bulgarian = "bg"
-    catalan = "ca"
-    cebuano = "ceb"
-    chinese = "zh"
-    corsican = "co"
-    croatian = "hr"
-    czech = "cs"
-    danish = "da"
-    dutch = "nl"
-    english = "en"
-    esperanto = "eo"
-    estonian = "et"
-    finnish = "fi"
-    french = "fr"
-    frisian = "fy"
-    galician = "gl"
-    georgian = "ka"
-    german = "de"
-    greek = "el"
-    gujarati = "gu"
-    haitian_creole = "ht"
-    hausa = "ha"
-    hawaiian = "haw"
-    hebrew = "he"
-    hindi = "hi"
-    hmong = "hmn"
-    hungarian = "hu"
-    icelandic = "is"
-    igbo = "ig"
-    indonesian = "id"
-    irish = "ga"
-    italian = "it"
-    japanese = "ja"
-    javanese = "jv"
-    kannada = "kn"
-    kazakh = "kk"
-    khmer = "km"
-    kinyarwanda = "rw"
-    korean = "ko"
-    kurdish = "ku"
-    kyrgyz = "ky"
-    lao = "lo"
-    latin = "la"
-    latvian = "lv"
-    lithuanian = "lt"
-    luxembourgish = "lb"
-    macedonian = "mk"
-    malagasy = "mg"
-    malay = "ms"
-    malayalam = "ml"
-    maltese = "mt"
-    maori = "mi"
-    marathi = "mr"
-    mongolian = "mn"
-    burmese = "my"
-    nepali = "ne"
-    norwegian = "no"
-    pashto = "ps"
-    persian = "fa"
-    polish = "pl"
-    portuguese = "pt"
-    punjabi = "pa"
-    romanian = "ro"
-    russian = "ru"
-    samoan = "sm"
-    scots_gaelic = "gd"
-    serbian = "sr"
-    sesotho = "st"
-    shona = "sn"
-    sindhi = "sd"
-    sinhala = "si"
-    slovak = "sk"
-    slovenian = "sl"
-    somali = "so"
-    spanish = "es"
-    sundanese = "su"
-    swahili = "sw"
-    swedish = "sv"
-    tajik = "tg"
-    tamil = "ta"
-    telugu = "te"
-    thai = "th"
-    turkish = "tr"
-    ukrainian = "uk"
-    urdu = "ur"
-    uzbek = "uz"
-    vietnamese = "vi"
-    welsh = "cy"
-    xhosa = "xh"
-    yiddish = "yi"
-    yoruba = "yo"
-    zulu = "zu"
