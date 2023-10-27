@@ -7,23 +7,8 @@ import json
 import bs4
 from ratelimit import limits, sleep_and_retry
 from enums import *
-
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-ROOT_URL = "https://rateyourmusic.com"
-CALL_LIMIT = 1
-RATE_LIMIT = 60
-
-class ParseError(Exception):
-    pass
-
-class NoURL(Exception):
-    pass
-
-class RequestFailed(Exception):
-    pass
-
-class NoContent(Exception):
-    pass
+from exceptions import *
+from global_variables import *
 
 class EntryCollection:
     @sleep_and_retry
