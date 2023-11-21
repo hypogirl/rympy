@@ -1,3 +1,7 @@
+from ratelimit import limits, sleep_and_retry
+from exceptions import *
+from global_variables import *
+
 class EntryCollection:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)

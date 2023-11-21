@@ -14,7 +14,7 @@ from base_classes import *
 class Chart(EntryCollection):
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
-    def __init__(self, *, chart_type, release_types,
+    def __init__(self, *, type, release_types,
                  year_range=None, primary_genres=None,
                  secondary_genres=None, primary_genres_excluded=None,
                  secondary_genres_excluded=None, locations=None,
@@ -24,7 +24,7 @@ class Chart(EntryCollection):
                  contain_all_genres=False) -> None:
         self.init_url = self._fetch_url()
         super().__init__(self.init_url, "ui_pagination_btn ui_pagination_number")
-        self.type = chart_type
+        self.type = type
         self.release_types = release_types
         self.year_range = year_range
         self.primary_genres = primary_genres
@@ -139,13 +139,13 @@ class Genre:
     @property
     def oldest_releases(self):
         if not self._oldest_releases:
-            self._oldest_releases = self.GenreReleases()
+            self._oldest_releases = self.GenreReleases(ROOT_URL + "/genres/" + self.name.lower().replace(" ", "-") + "/1/")
         return self._oldest_releases
     
     @property
     def newest_releases(self):
         if not self._newest_releases:
-            self._newest_releases = self.GenreReleases()
+            self._newest_releases = self.GenreReleases(ROOT_URL + "/genres/" + self.name.lower().replace(" ", "-") + "/1.d/")
         return self._newest_releases
     
     @property
@@ -184,7 +184,7 @@ class Genre:
             raise ParseError("No genre name was found.")
         
     def _fetch_short_description(self):
-        return self._soup.find(id="page_genre_description_short").text
+        return self._soup.find(id="page_genre_description_short").text.replace("\n","").replace("Read more","")
         
     def _fetch_description(self):
         return self._soup.find(id="page_genre_description_full").text
@@ -212,7 +212,8 @@ class Genre:
         return [SimpleRelease(name=album.find(class_="release").text,
                               artist_name=album.find(class_="artist").text,
                               url=album.find("a")["href"],
-                              cover=album.find("a").find("picture").find("source")["srcset"].replace("\n","").strip().split(" 2x")[0]
+                              cover=(album.find("a").find("picture").find("source").get("srcset") or album.find("a").find("picture").find("source").get("data-srcset"))
+                              .replace("\n","").strip().split(" 2x")[0]
                               ) for album in top_ten_elem]
     
     def _fetch_lists(self):
@@ -281,12 +282,13 @@ class Artist:
         def create_simple_release(self, release):
             date = None
             if date_elem := release.find(class_="disco_subline"):
-                date_components_count = date_elem["title"].count(" ") + 1
+                date_text = date_elem.find("span")["title"]
+                date_components_count = date_text.count(" ") + 1
                 date_formating = {1: "%Y",
                                 2: "%B %Y",
                                 3: "%d %B %Y"}
                 
-                date = datetime.strptime(date_elem["title"], date_formating[date_components_count])
+                date = datetime.strptime(date_text, date_formating[date_components_count])
 
             artist_name = self.artist.name
             artists = [self.artist]
@@ -295,8 +297,7 @@ class Artist:
                 artists = [SimpleArtist(name=artist.text, url=ROOT_URL + artist["href"])
                            if ROOT_URL + artist["href"] != self.artist.url else self.artist
                            for artist in collab_elem.find_all(class_="disco_sub_artist")]
-            else:
-                artist_elem = release.find(class_="disco_sub_artist")
+            elif artist_elem := release.find(class_="disco_sub_artist"):
                 artist_name = artist_elem.text
                 artist_url = ROOT_URL + artist_elem["href"]
                 if artist_url != self.artist.url:
@@ -308,7 +309,7 @@ class Artist:
                                  url= ROOT_URL + release.find(class_="disco_info").contents[0]["href"],
                                  release_date=date,
                                  number_of_ratings=release.find(class_="disco_ratings").text or None,
-                                 number_of_rewviews=release.find(class_="disco_reviews").text or None,
+                                 number_of_reviews=release.find(class_="disco_reviews").text or None,
                                  average_rating=float(release.find(class_="disco_avg_rating").text))
 
     class ReleaseCollection(GeneralCollection):
@@ -450,22 +451,29 @@ class Artist:
     def _fetch_gen_date_location(self, *titles):
         for title in titles:
             if (date_location_elem := self._soup.find("div", class_="info_hdr", string=title)):
-                date_location_info = date_location_elem.find_next_sibling()
                 location = self._fetch_location(date_location_elem)
-                date_text = date_location_info.contents[0].strip()
-                date_components_count = date_text.count(" ") + 1
-                date_formating = {1: "%Y",
-                                2: "%B %Y",
-                                3: "%d %B %Y"}
-                date = datetime.strptime(date_text, date_formating[date_components_count])
+                date_location_info = date_location_elem.find_next_sibling()
+                if date_location_info.contents[0].name != "a":
+                    date_text = date_location_info.contents[0].strip()
+                    date_components_count = date_text.count(" ") + 1
+                    date_formating = {1: "%Y",
+                                    2: "%B %Y",
+                                    3: "%d %B %Y"}
+                    date = datetime.strptime(date_text, date_formating[date_components_count])
+                else:
+                    date = None
+
                 return {"date": date,
                         "location": location}
+        
+        return {"date": None,
+                "location": None}
 
     def _fetch_start_date_location(self):
-        return self._fetch_gen_date_location("Formed", "Born")
+        return self._fetch_gen_date_location("Formed", ["Formed","Born"])
 
     def _fetch_end_date_location(self):
-        return self._fetch_gen_date_location("Disbanded", "Died")
+        return self._fetch_gen_date_location("Disbanded", ["Disbanded","Died"])
     
     def _fetch_current_location(self):
         if current_date := self._fetch_gen_date_location("Currently"):
@@ -563,12 +571,13 @@ class Artist:
         return f"Artist: {self.name}"
 
 class Track:
-    def __init__(self, *, number, title, length, credited_artists=None, release) -> None:
+    def __init__(self, *, number, title, length, credited_artists=None, release=None, simple_release=None) -> None:
         self.number = number
         self.title = title
         self.length = length
         self.credited_artists = credited_artists
         self.release = release
+        self.simple_release = simple_release
 
     def __eq__(self, other) -> bool:
         return self.number == other.number and self.release == other.release
@@ -737,7 +746,8 @@ class Release:
         self.__update_tracks()
         self._reviews = None
         self._lists = None
-        self._id = self._fetch_id()
+        self.id = self._fetch_id()
+        self.is_nazi = self._fetch_is_nazi()
 
     class Lists(EntryCollection):
         def __init__(self, url):
@@ -809,7 +819,7 @@ class Release:
     def _fetch_title(self):
         release_title_elem = self._soup.find("div", class_="album_title")
         try:
-            return re.findall(r"(.+)\n +\nBy .+", release_title_elem.text)[0]
+            return re.findall(r"(.+)\n +\nBy .+", release_title_elem.text)[0].strip()
         except IndexError:
             raise ParseError("No title was found for this release.")
 
@@ -876,7 +886,7 @@ class Release:
     
     def _fetch_descriptors(self):
         if descriptors := self._soup.find("span", class_="release_pri_descriptors"):
-            return descriptors.text
+            return descriptors.text.split(", ")
 
     def _fetch_cover_url(self):
         release_cover_elem = self._soup.find("img")
@@ -930,11 +940,12 @@ class Release:
         tracks_elem = self._soup.find(id="tracks")
         tracks = list()
 
-        for track in tracks_elem.contents:
-            track_number = track.contents[0].find("span", class_="tracklist_num").text.replace("\n","").replace(" ", "")
-            track_title = track.contents[0].find("span", class_="tracklist_title").text
-            track_length = timedelta(seconds=int(tracks.find("span", class_="tracklist_title").contents[1]["data-inseconds"]))
-            tracks.append(Track(number=track_number, title=track_title, length=track_length))
+        for track in tracks_elem.find_all("div", {"itemprop":"track"}):
+            track_number = track.find("span", class_="tracklist_num").text.replace("\n","").replace(" ", "")
+            track_title = track.find("span", class_="tracklist_title").text
+            track_length = timedelta(seconds=int(track.find("span", class_="tracklist_title").contents[1]["data-inseconds"]))
+            tracks.append(Track(number=track_number, title=track_title, length=track_length, simple_release=SimpleRelease(title=self.title,
+                                                                                                                          url=self.url)))
         
         return tracks
     
@@ -961,6 +972,9 @@ class Release:
 
         credits_elem = self._soup.find(id="credits_")
         credited_artists = list()
+
+        if not credits_elem:
+            return credited_artists
 
         for artist in credits_elem[::2]:
             role_elems = credits_elem.contents[0].find_all(class_="role_name")
@@ -1046,16 +1060,18 @@ class Release:
         if label_elem := issue.find(class_="label"):
             label = SimpleLabel(name=label_elem.text,
                                 url=ROOT_URL + label_elem["href"])
-            issue_number = label_elem.next_sibling.text.split('•')[1].strip()
+            issue_number = label_elem.next_sibling.text.replace("/","").strip()
         else:
             label = issue_number = None
 
-        countries_elem = issue.find("issue_countries") 
-        countries = [country["title"] for country in countries_elem.find_all(class_="ui_flag")]
+        countries = None
+        if countries_elem:= issue.find("issue_countries"):
+            countries = [country["title"] for country in countries_elem.find_all(class_="ui_flag")]
 
+        print(issue, "\n\n\n\n\n")
         title = issue.find("a")["title"]
         url = issue.find("a")["href"]
-        format = issue.find("issue_formats")["title"]
+        format = issue.find(class_="issue_formats")["title"]
         attributes = issue.find(class_="attribute").text.split(", ") if issue.find(class_="attribute") else None
 
         return {
@@ -1071,7 +1087,9 @@ class Release:
             
 
     def _fetch_issues(self):
-        issues_elems = self._soup.find_all(class_="issue_info")[1:]
+        issues_elems = self._soup.find_all(class_="issue_info")
+        issues_elems = [issue for issue in issues_elems if "release_view" not in issue["class"]]
+        print(issues_elems, "\n\n\n\n\n")
         
         release_issues_list = list()
 
@@ -1080,18 +1098,22 @@ class Release:
 
             release_issue = SimpleReleaseIssue(
                 title=issue_info["title"],
-                url=issue_info,
+                url=issue_info["url"],
                 release_date=issue_info["release_date"],
-                format=issue_info,
+                format=issue_info["format"],
                 label=issue_info["label"],
                 issue_number=issue_info["issue_number"],
-                attributes=issue_info["attribute"],
+                attributes=issue_info["attributes"],
                 countries=issue_info["countries"]
             )
             
             release_issues_list.append(release_issue)
 
         return release_issues_list
+
+    def _fetch_is_nazi(self):
+        if warning_div := self._soup.find(class_="warning"):
+            return "Nazi" in warning_div.text
         
     def __str__(self):
         return self.title
@@ -1311,15 +1333,16 @@ class SimpleArtist(SimpleEntity):
             raise NoURL("No URL is associated with this artist.")
 
 class SimpleRelease(SimpleEntity):
-    def __init__(self, *, name=None, release_date=None, average_rating=None, number_of_ratings=None, number_of_reviews=None, url=None, cover=None, artist_name=None, simple_artists=None):
-        super().__init__(name=name, url=url)
+    def __init__(self, *, title=None, name=None, release_date=None, average_rating=None, number_of_ratings=None, number_of_reviews=None, url=None, cover=None, artist_name=None, artists=None, bolded=None):
+        super().__init__(name=name or title, url=url)
         self.artist_name = artist_name
-        self.simple_artists = simple_artists
+        self.artists = artists
         self.release_date = release_date
         self.average_rating = average_rating
         self.number_of_ratings = number_of_ratings
         self.number_of_reviews = number_of_reviews
         self.cover = cover
+        self.is_bolded = bolded
 
     def get_release(self):
         return Release(self.url)
@@ -1337,9 +1360,9 @@ class SimpleUser(SimpleEntity):
         return User(username=self.name, url=self.url)
     
 class SimpleReleaseIssue(SimpleEntity):
-    def __init__(self, *, title, url, release_format, release_date, label=None, issue_number=None, attributes=None, countries=None) -> None:
+    def __init__(self, *, title, url, format, release_date, label=None, issue_number=None, attributes=None, countries=None) -> None:
         super().__init__(title= title, url=url)
-        self.format = release_format
+        self.format = format
         self.release_date = release_date
         self.label = label
         self.issue_number = issue_number
