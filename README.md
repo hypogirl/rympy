@@ -1,2 +1,2 @@
 # rympy
-Unofficial RYM API. Still in a very early stage..
+Unofficial RYM API. I'll try to write documentation and update it soon :)
