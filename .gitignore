@@ -1,2 +1,12 @@
 
 todo
+rympy/rympy.egg-info/dependency_links.txt
+rympy/rympy.egg-info/PKG-INFO
+rympy/rympy.egg-info/top_level.txt
+rympy/rympy.egg-info/SOURCES.txt
+rympy/rympy/__pycache__/base_classes.cpython-311.pyc
+rympy/rympy/__pycache__/__init__.cpython-311.pyc
+rympy/rympy/__pycache__/exceptions.cpython-311.pyc
+rympy/rympy/__pycache__/enums.cpython-311.pyc
+rympy/rympy/__pycache__/global_variables.cpython-311.pyc
+rympy/rympy/__pycache__/rym.cpython-311.pyc
