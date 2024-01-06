@@ -233,7 +233,12 @@ class Genre:
 class Artist:
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
-    def __init__(self, url) -> None:
+    def __init__(self, *, url=None, name=None, same_name_artist_number=0) -> None:
+        if not url:
+            if not name:
+                raise NoURL("No valid artist name or URL provided.")
+            else:
+                url = ROOT_URL + "/artist/" + name.replace(" ", "-").lower()
         self._cached_rym_response = requests.get(url, headers= HEADERS)
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
@@ -426,6 +431,9 @@ class Artist:
         if not self._credits:
             self._credits = self._fetch_credits()
         return self._credits
+    
+    def next_same_name_artist(self):
+        return Artist(name=self.name, same_name_artist_number=self.same_name_artist_number+1)
 
     def _fetch_name(self):
         try:
