@@ -315,7 +315,7 @@ class Artist:
                                  release_date=date,
                                  number_of_ratings=release.find(class_="disco_ratings").text or None,
                                  number_of_reviews=release.find(class_="disco_reviews").text or None,
-                                 average_rating=float(release.find(class_="disco_avg_rating").text or 0))
+                                 average_rating=(lambda x: float(x.text) if x else None)(release.find(class_="disco_avg_rating")))
 
     class ReleaseCollection(GeneralCollection):
         def initialize_attributes(self):
@@ -487,10 +487,9 @@ class Artist:
         return self._fetch_gen_date_location("Disbanded", ["Disbanded","Died"])
     
     def _fetch_current_location(self):
-        if current_date := self._fetch_gen_date_location("Currently"):
-            return current_date["location"]
-        else:
-            return self.start_date
+        if (date_location_elem := self._soup.find("div", class_="info_hdr", string="Currently")):
+            return date_location_elem.find_next_sibling().text
+
 
     def _fetch_genres(self):
         if genre_div := self._soup.find("div", class_="info_hdr", string="Genres"):
