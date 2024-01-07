@@ -315,7 +315,7 @@ class Artist:
                                  release_date=date,
                                  number_of_ratings=release.find(class_="disco_ratings").text or None,
                                  number_of_reviews=release.find(class_="disco_reviews").text or None,
-                                 average_rating=float(release.find(class_="disco_avg_rating").text))
+                                 average_rating=float(release.find(class_="disco_avg_rating").text or 0))
 
     class ReleaseCollection(GeneralCollection):
         def initialize_attributes(self):
@@ -462,12 +462,15 @@ class Artist:
                 location = self._fetch_location(date_location_elem)
                 date_location_info = date_location_elem.find_next_sibling()
                 if date_location_info.contents[0].name != "a":
-                    date_text = date_location_info.contents[0].strip()
+                    date_text = date_location_info.contents[0].strip()[:-1]
                     date_components_count = date_text.count(" ") + 1
                     date_formating = {1: "%Y",
                                     2: "%B %Y",
                                     3: "%d %B %Y"}
-                    date = datetime.strptime(date_text, date_formating[date_components_count])
+                    try:
+                        date = datetime.strptime(date_text, date_formating[date_components_count])
+                    except ValueError:
+                        date = None
                 else:
                     date = None
 
