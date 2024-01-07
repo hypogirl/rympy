@@ -1,3 +1,6 @@
+import requests
+import bs4
+import re
 from ratelimit import limits, sleep_and_retry
 from .exceptions import *
 from .global_variables import *
