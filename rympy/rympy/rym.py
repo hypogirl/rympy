@@ -257,6 +257,7 @@ class Artist:
         self.genres = self._fetch_genres()
         self.members = self._fetch_members()
         self.akas = self._fetch_akas()
+        self.member_of = self._fetch_member_of()
         self.related_artists = self._fetch_related()
         self.notes = self._fetch_notes()
         self._credits = None
@@ -545,6 +546,15 @@ class Artist:
                 akas.append(SimpleArtist(name=aka, url=url))    
 
             return akas
+        
+    def _fetch_member_of(self):
+        if member_of_div := self._soup.find("div", class_="info_hdr", string="Member of"):
+            member_of = member_of_div.find_next_sibling()
+            all_artists = member_of.split(", ")
+            artist_elems = member_of.find_all("a")
+            return [SimpleArtist(name=artist.text, url=artist["href"])
+                    for artist in artist_elems] + [artist for artist in all_artists if artist not in
+                                                   [artist.text for artist in artist_elems]]
         
     def _fetch_related(self):
         if related_div := self._soup.find("div", class_="info_hdr", string="Related Artists"):
@@ -960,7 +970,10 @@ class Release:
         return tracks
     
     def _fetch_credited_artists(self):
-        def get_role_tracks(text):
+        def get_role_tracks(role_tracks_elem):
+            if not role_tracks_elem:
+                return None
+            text = role_tracks_elem.text
             result_tuples = re.findall(r"(\w+-\w+)|(\w+)", text)
             role_tracks = list()
 
@@ -986,9 +999,11 @@ class Release:
         if not credits_elem:
             return credited_artists
 
-        for artist in credits_elem[::2]:
+        for artist in credits_elem.find_all("li"):
+            if not artist.text or artist.get("id") == "track_minor_show_":
+                continue
             role_elems = credits_elem.contents[0].find_all(class_="role_name")
-            roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.contents[1].text)) for role in role_elems]
+            roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.find(class_="role_tracks"))) for role in role_elems]
             
             url = str()
             if artist.contents[0].get("href"):
@@ -1078,7 +1093,6 @@ class Release:
         if countries_elem:= issue.find("issue_countries"):
             countries = [country["title"] for country in countries_elem.find_all(class_="ui_flag")]
 
-        print(issue, "\n\n\n\n\n")
         title = issue.find("a")["title"]
         url = issue.find("a")["href"]
         format = issue.find(class_="issue_formats")["title"]
@@ -1099,7 +1113,6 @@ class Release:
     def _fetch_issues(self):
         issues_elems = self._soup.find_all(class_="issue_info")
         issues_elems = [issue for issue in issues_elems if "release_view" not in issue["class"]]
-        print(issues_elems, "\n\n\n\n\n")
         
         release_issues_list = list()
 
