@@ -126,9 +126,13 @@ class Genre:
             super().__init__(url, "ui_pagination_btn ui_pagination_number")
         
         def _specific_fetch(self):
+            def get_cover(found_a):
+                if picture_elem := found_a.find("picture"):
+                    return picture_elem.find("source")["srcset"].replace("\n","").strip().split(" 2x")[0]
+            
             release_elems = self._soup.find_all(class_="component_discography_item")
             return [SimpleRelease(url=ROOT_URL+release.find("a")["href"],
-                                  cover=release.find("a").find("picture").find("source")["srcset"].replace("\n","").strip().split(" 2x")[0],
+                                  cover=get_cover(release.find("a")),
                                   title=release.find("span").text.replace("\n",""),
                                   artist_name=release.find("span").next_sibling.next_sibling.text.replace("\n",""),
                                   simple_artists=[SimpleArtist(name=artist.text.replace("\n",""),
@@ -208,12 +212,15 @@ class Genre:
         return children_genres or None
     
     def _fetch_top_ten(self):
+        def get_cover(found_a):
+            if picture_elem := found_a.find("picture"):
+                return picture_elem.find("source").get("srcset") or picture_elem.find("source").get("data-srcset").replace("\n","").strip().split(" 2x")[0]
+            
         top_ten_elem = self._soup.find_all(class_="page_section_charts_carousel_item")
         return [SimpleRelease(name=album.find(class_="release").text,
                               artist_name=album.find(class_="artist").text,
                               url=album.find("a")["href"],
-                              cover=(album.find("a").find("picture").find("source").get("srcset") or album.find("a").find("picture").find("source").get("data-srcset"))
-                              .replace("\n","").strip().split(" 2x")[0]
+                              cover=(get_cover(album.find("a")))
                               ) for album in top_ten_elem]
     
     def _fetch_lists(self):
@@ -263,6 +270,7 @@ class Artist:
         self._credits = None
         self.discography = self.ReleaseCollection(self)
         self.appears_on = self.FeatureCollection(self)
+        self.same_name_artist_number = same_name_artist_number
 
     class GeneralCollection:
         def __init__(self, artist) -> None:
@@ -891,7 +899,7 @@ class Release:
             
     def _fetch_type(self):
         if types_proto := re.findall(r"Type((?:\w+, )*\w+)", self._soup.text):
-            return types_proto[0].split(",") if "," in types_proto[0] else types_proto[0]
+            return types_proto[0]
 
     def _gen_fetch_genres(self, type):
         if genres_elem := self._soup.find("span", class_=f"release_{type}_genres"):
@@ -1006,10 +1014,15 @@ class Release:
             roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.find(class_="role_tracks"))) for role in role_elems]
             
             url = str()
-            if artist.contents[0].get("href"):
-                url = ROOT_URL+artist.contents[0].get("href")
+            artist_name = str()
+            try:
+                if artist.contents[0].get("href"):
+                    url = ROOT_URL+artist.contents[0].get("href")
+                artist_name = artist.contents[0].text
+            except (IndexError, AttributeError):
+                artist_name = str(artist.contents[0])
 
-            credited_artists.append(CreditedArtist(name=artist.contents[0].text, 
+            credited_artists.append(CreditedArtist(name=artist_name, 
                                                        url=url,
                                                        roles=roles))
 
@@ -1017,27 +1030,29 @@ class Release:
         return credited_artists
     
     def __update_tracks(self):
-        new_credited_artist = list()
+        new_credited_artists = list()
 
         for credited_artist in self.credited_artists:
             new_roles = list()
 
             for role in credited_artist.roles:
                 new_tracks = list()
-
-                for track in role.tracks:
-                    if track in self.tracklist:
-                        track.credited_artists = credited_artist
-                        new_tracks.append(track)
-                        self.tracklist[self.tracklist.index(track)] = track
                 
-                role.tracks = new_tracks
+                if role.tracks:
+                    for track in role.tracks:
+                        if track in self.tracklist:
+                            track.credited_artists = credited_artist
+                            new_tracks.append(track)
+                            self.tracklist[self.tracklist.index(track)] = track
+                    
+                    role.tracks = new_tracks
+                
                 new_roles.append(role)
 
             credited_artist.roles = new_roles
-            new_credited_artist.append(credited_artist)
+            new_credited_artists.append(credited_artist)
         
-        self.credited_artists = new_credited_artist
+        self.credited_artists = new_credited_artists
     
     def _fetch_length(self):
         release_length_elem = self._soup.find("span", class_="tracklist_total")
@@ -1345,6 +1360,21 @@ class Role:
             return self.name
 
 class SimpleGenre(SimpleEntity):
+    def __init__(self, *, name=None, title=None, url=None) -> None:
+        super().__init__(name=name, title=title, url=url)
+        self.short_description = self._fetch_short_description()
+        self.description = self._fetch_description()
+        self.akas = self._fetch_akas()
+        self.parent_genres = self._fetch_parent_genres()
+        self.children_genres = self._fetch_children_genres()
+        self._top_chart = None
+        self._bottom_chart = None
+        self._esoteric_chart = None
+        self.top_ten_albums = self._fetch_top_ten()
+        self.lists = self._fetch_lists()
+        self._oldest_releases = None
+        self._newest_releases = None
+
     def get_genre(self):
         return Genre(self.url, self.name)
 
