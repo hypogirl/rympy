@@ -191,7 +191,7 @@ class Genre:
         return self._soup.find(id="page_genre_description_short").text.replace("\n","").replace("Read more","")
         
     def _fetch_description(self):
-        return self._soup.find(id="page_genre_description_full").text
+        return str().join(["\n" if part.name == "br" else part.text for part in self._soup.find(id="page_genre_description_full").find(class_="rendered_text").contents])
         
     def _fetch_akas(self):
         if aka_elems := self._soup.find_all("bdi", class_="comma_separated"):
@@ -904,7 +904,7 @@ class Release:
     def _gen_fetch_genres(self, type):
         if genres_elem := self._soup.find("span", class_=f"release_{type}_genres"):
             genres_text = genres_elem.text
-            return [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")]
+            return [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")] if genres_text.split(",") else None
     
     def _fetch_primary_genres(self):
         return self._gen_fetch_genres("pri")
@@ -1008,9 +1008,9 @@ class Release:
             return credited_artists
 
         for artist in credits_elem.find_all("li"):
-            if not artist.text or "expand_button" in artist.get("class"):
+            if artist.text == ' ' or not artist.text or (artist.get("class") and "expand_button" in artist.get("class")):
                 continue
-            role_elems = credits_elem.contents[0].find_all(class_="role_name")
+            role_elems = artist.find_all(class_="role_name")
             roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.find(class_="role_tracks"))) for role in role_elems]
             
             url = str()
