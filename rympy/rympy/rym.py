@@ -1008,7 +1008,7 @@ class Release:
             return credited_artists
 
         for artist in credits_elem.find_all("li"):
-            if not artist.text or artist.get("id") == "track_minor_show_":
+            if not artist.text or "expand_button" in artist.get("class"):
                 continue
             role_elems = credits_elem.contents[0].find_all(class_="role_name")
             roles = [Role(name=role.contents[0].text, tracks= get_role_tracks(role.find(class_="role_tracks"))) for role in role_elems]
@@ -1360,21 +1360,6 @@ class Role:
             return self.name
 
 class SimpleGenre(SimpleEntity):
-    def __init__(self, *, name=None, title=None, url=None) -> None:
-        super().__init__(name=name, title=title, url=url)
-        self.short_description = self._fetch_short_description()
-        self.description = self._fetch_description()
-        self.akas = self._fetch_akas()
-        self.parent_genres = self._fetch_parent_genres()
-        self.children_genres = self._fetch_children_genres()
-        self._top_chart = None
-        self._bottom_chart = None
-        self._esoteric_chart = None
-        self.top_ten_albums = self._fetch_top_ten()
-        self.lists = self._fetch_lists()
-        self._oldest_releases = None
-        self._newest_releases = None
-
     def get_genre(self):
         return Genre(self.url, self.name)
 
