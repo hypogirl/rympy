@@ -22,8 +22,6 @@ class Chart(EntryCollection):
                  languages_excluded=None, descriptors=None,
                  descriptors_excluded=None, include_subgenres=True,
                  contain_all_genres=False) -> None:
-        self.init_url = self._fetch_url()
-        super().__init__(self.init_url, "ui_pagination_btn ui_pagination_number")
         self.type = type
         self.release_types = release_types
         self.year_range = year_range
@@ -39,6 +37,8 @@ class Chart(EntryCollection):
         self.descriptors_excluded = descriptors_excluded
         self.include_subgenres = include_subgenres
         self.contain_all_genres = contain_all_genres
+        self.init_url = self._fetch_url()
+        super().__init__(self.init_url, "ui_pagination_btn ui_pagination_number")
 
     def _fetch_url(self):
         release_types_str = str()
@@ -78,6 +78,7 @@ class Chart(EntryCollection):
         entries = [SimpleRelease(title=(entry.find("div", class_="page_charts_section_charts_item_credited_links_primary")
                                         .text.replace("\n", "") + " - " + entry.find("div", class_="page_charts_section_charts_item_title")
                                         .text.replace("\n", "")),
+                                 artist_name=(entry.find(class_="ui_name_locale").text if entry.find(class_="ui_name_locale") else "None"),
                                  url=ROOT_URL + entry.contents[1].contents[1]["href"]
                                  ) for entry in chart_elem[:-1:2]]
         
@@ -159,7 +160,7 @@ class Genre:
     @property
     def top_chart(self):
         if not self._top_chart:
-            self._top_chart = Chart(type=ChartType.top, release_types=ReleaseType.album)
+            self._top_chart = Chart(type=ChartType.top, release_types=ReleaseType.album, primary_genres=[self.])
         return self._top_chart
 
     @property
@@ -218,7 +219,7 @@ class Genre:
             
         top_ten_elem = self._soup.find_all(class_="page_section_charts_carousel_item")
         return [SimpleRelease(name=album.find(class_="release").text,
-                              artist_name=album.find(class_="artist").text,
+                              artist_name=album.find(class_="artist").text if album.find(class_="artist") else "None",
                               url=album.find("a")["href"],
                               cover=(get_cover(album.find("a")))
                               ) for album in top_ten_elem]
@@ -895,7 +896,9 @@ class Release:
         return self._gen_fetch_date(r"Released(\w+ \d+)|Released(\d+ \w+ \d+)|Released(\d{4})")
         
     def _fetch_recording_date(self):
-        return self._gen_fetch_date(r"Recorded(\w+ \d+)|Recorded(\d+ \w+ \d+)|Recorded(\d{4})")
+        if (recorded_elem := self._soup.find("div", class_="info_hdr", string="Recorded")):
+            dates_info = recorded_elem.find_next_sibling()
+            return dates_info.text
             
     def _fetch_type(self):
         if types_proto := re.findall(r"Type((?:\w+, )*\w+)", self._soup.text):
