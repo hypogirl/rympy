@@ -160,26 +160,26 @@ class Genre:
     @property
     def top_chart(self):
         if not self._top_chart:
-            self._top_chart = Chart(type=ChartType.top, release_types=ReleaseType.album, primary_genres=[self.])
+            self._top_chart = Chart(type=ChartType.top, release_types=ReleaseType.album, primary_genres=[self])
         return self._top_chart
 
     @property
     def bottom_chart(self):
         if not self._bottom_chart:
-            self._bottom_chart = Chart(type=ChartType.bottom, release_types=ReleaseType.album)
+            self._bottom_chart = Chart(type=ChartType.bottom, release_types=ReleaseType, primary_genres=[self])
         return self._bottom_chart
     
     @property
     def esoteric_chart(self):
         if not self._esoteric_chart:
-            self._esoteric_chart = Chart(type=ChartType.esoteric, release_types=ReleaseType.album)
+            self._esoteric_chart = Chart(type=ChartType.esoteric, release_types=ReleaseType, primary_genres=[self])
         return self._esoteric_chart
         
     def chart(self, *, type=None, year_range=None):
         if not type:
-            return Chart(type=ChartType.top, release_types=ReleaseType.album, year_range=year_range)
+            return Chart(type=ChartType.top, release_types=ReleaseType.album, year_range=year_range, primary_genres=[self])
         else:
-            return Chart(type=type, release_types=ReleaseType.album, year_range=year_range)
+            return Chart(type=type, release_types=ReleaseType.album, year_range=year_range, primary_genres=[self])
 
 
     def _fetch_name(self):
@@ -846,10 +846,9 @@ class Release:
                 return track
 
     def _fetch_title(self):
-        release_title_elem = self._soup.find("div", class_="album_title")
         try:
-            return re.findall(r"(.+)\n +\nBy .+", release_title_elem.text)[0].strip()
-        except IndexError:
+            return self._soup.find(class_="album_title").contents[0].replace("\n","").strip()
+        except AttributeError:
             raise ParseError("No title was found for this release.")
 
     def _fetch_artists(self):
@@ -883,22 +882,21 @@ class Release:
             if len(reviews_elem_split) > 1:
                 return reviews_elem_split[0]
             
-    def _gen_fetch_date(self, regex):
-        if date_proto := re.findall(regex, self._soup.text):
-            if date := date_proto[0][0] or date_proto[0][1] or date_proto[0][2]:
-                date_components_count = date.count(" ") + 1
-                date_formating = {1: "%Y",
-                                2: "%B %Y",
-                                3: "%d %B %Y"}
-                return datetime.strptime(date, date_formating[date_components_count])
-    
-    def _fetch_release_date(self):
-        return self._gen_fetch_date(r"Released(\w+ \d+)|Released(\d+ \w+ \d+)|Released(\d{4})")
-        
-    def _fetch_recording_date(self):
-        if (recorded_elem := self._soup.find("div", class_="info_hdr", string="Recorded")):
+    def _gen_fetch_date(self, title):
+        if (recorded_elem := self._soup.find("div", class_="info_hdr", string=title)):
             dates_info = recorded_elem.find_next_sibling()
             return dates_info.text
+    
+    def _fetch_release_date(self):
+        date_text = self._gen_fetch_date("Released")
+        date_components_count = date_text.count(" ") + 1
+        date_formating = {1: "%Y",
+                        2: "%B %Y",
+                        3: "%d %B %Y"}
+        return datetime.strptime(date_text, date_formating[date_components_count])
+        
+    def _fetch_recording_date(self):
+        return self._gen_fetch_date("Recorded")
             
     def _fetch_type(self):
         if types_proto := re.findall(r"Type((?:\w+, )*\w+)", self._soup.text):
@@ -907,7 +905,7 @@ class Release:
     def _gen_fetch_genres(self, type):
         if genres_elem := self._soup.find("span", class_=f"release_{type}_genres"):
             genres_text = genres_elem.text
-            return [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")] if genres_text.split(",") else None
+            return [SimpleGenre(name=genre.lstrip()) for genre in genres_text.split(",")] if genres_text else None
     
     def _fetch_primary_genres(self):
         return self._gen_fetch_genres("pri")
