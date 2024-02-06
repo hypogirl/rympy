@@ -883,20 +883,26 @@ class Release:
                 return reviews_elem_split[0]
             
     def _gen_fetch_date(self, title):
-        if (recorded_elem := self._soup.find("div", class_="info_hdr", string=title)):
+        if (recorded_elem := self._soup.find(class_="info_hdr", string=title)):
             dates_info = recorded_elem.find_next_sibling()
             return dates_info.text
     
     def _fetch_release_date(self):
-        date_text = self._gen_fetch_date("Released")
-        date_components_count = date_text.count(" ") + 1
-        date_formating = {1: "%Y",
-                        2: "%B %Y",
-                        3: "%d %B %Y"}
-        return datetime.strptime(date_text, date_formating[date_components_count])
+        if date_elem := self._soup.find("meta", {"name":"description"}):
+            if date_text := re.findall(r"Released (.{1,17})\. Genres", date_elem.text):
+                date_text = date_text[0]
+                date_components_count = date_text.count(" ") + 1
+                date_formating = {1: "%Y",
+                                2: "%B %Y",
+                                3: "%d %B %Y"}
+                return datetime.strptime(date_text, date_formating[date_components_count])
+        return None
         
     def _fetch_recording_date(self):
-        return self._gen_fetch_date("Recorded")
+        if proto_date := re.findall(r'Recorded<td colspan="2">(.{1,17})<\/td>',str(self._soup)):
+            return proto_date[0]
+        else:
+            return None
             
     def _fetch_type(self):
         if types_proto := re.findall(r"Type((?:\w+, )*\w+)", self._soup.text):
@@ -1041,10 +1047,13 @@ class Release:
                 
                 if role.tracks:
                     for track in role.tracks:
-                        if track in self.tracklist:
-                            track.credited_artists = credited_artist
-                            new_tracks.append(track)
-                            self.tracklist[self.tracklist.index(track)] = track
+                        try:
+                            if track in self.tracklist:
+                                track.credited_artists = credited_artist
+                                new_tracks.append(track)
+                                self.tracklist[self.tracklist.index(track)] = track
+                        except AttributeError:
+                            continue
                     
                     role.tracks = new_tracks
                 
@@ -1194,6 +1203,10 @@ class User:
         self.favorite_artists = self._fetch_favorite_artists()
         self.recently_online_friends = self._fetch_recently_online_friends()
         self._friends = None
+        self.ratings = self.RatingCollection()
+
+    class RatingCollection(EntryCollection):
+        pass
 
     @property
     def favourite_artists(self):
