@@ -38,7 +38,7 @@ class Chart(EntryCollection):
         self.include_subgenres = include_subgenres
         self.contain_all_genres = contain_all_genres
         self.init_url = self._fetch_url()
-        super().__init__(self.init_url, "ui_pagination_btn ui_pagination_number")
+        super().__init__(self.init_url, "ui_pagination_number")
 
     def _fetch_url(self):
         release_types_str = str()
@@ -49,6 +49,8 @@ class Chart(EntryCollection):
 
         if self.year_range:
             url += f"/{self.year_range.min}-{self.year_range.max}/"
+        else:
+            url += f"/all-time/"
 
         for field in [(self.primary_genres, self.primary_genres_excluded, "g"),
                         (self.descriptors, self.descriptors_excluded, "d"),
@@ -777,6 +779,7 @@ class Release:
         self._lists = None
         self.id = self._fetch_id()
         self.is_nazi = self._fetch_is_nazi()
+        self.is_bolded = self._fetch_is_bolded()
 
     class Lists(EntryCollection):
         def __init__(self, url):
@@ -874,13 +877,13 @@ class Release:
         
     def _fetch_number_of_ratings(self):
         if num_ratings_elem := self._soup.find("span", class_="num_ratings"):
-            return num_ratings_elem.contents[1].text.strip()
+            return int(num_ratings_elem.contents[1].text.strip().replace(",",""))
         
     def _fetch_number_of_reviews(self):
         if review_section := self._soup.find("div", class_="section_reviews section_outer"):
             reviews_elem_split = review_section.find("div", class_="release_page_header").text.split(" ")
             if len(reviews_elem_split) > 1:
-                return reviews_elem_split[0]
+                return int(reviews_elem_split[0].replace(",","") if reviews_elem_split[0].replace(",","") != '' else 0)
             
     def _gen_fetch_date(self, title):
         if (recorded_elem := self._soup.find(class_="info_hdr", string=title)):
@@ -889,7 +892,7 @@ class Release:
     
     def _fetch_release_date(self):
         if date_elem := self._soup.find("meta", {"name":"description"}):
-            if date_text := re.findall(r"Released (.{1,17})\. Genres", date_elem.text):
+            if date_text := re.findall(r"Released (?:in )?(\d{0,2} ?\w* ?\d{4})", str(date_elem)):
                 date_text = date_text[0]
                 date_components_count = date_text.count(" ") + 1
                 date_formating = {1: "%Y",
@@ -973,6 +976,9 @@ class Release:
         
     def _fetch_tracks(self):
         tracks_elem = self._soup.find(id="tracks")
+        if not tracks_elem:
+            return None
+        
         tracks = list()
 
         for track in tracks_elem.find_all("div", {"itemprop":"track"}):
@@ -1048,7 +1054,7 @@ class Release:
                 if role.tracks:
                     for track in role.tracks:
                         try:
-                            if track in self.tracklist:
+                            if self.tracklist and track in self.tracklist:
                                 track.credited_artists = credited_artist
                                 new_tracks.append(track)
                                 self.tracklist[self.tracklist.index(track)] = track
@@ -1162,6 +1168,12 @@ class Release:
     def _fetch_is_nazi(self):
         if warning_div := self._soup.find(class_="warning"):
             return "Nazi" in warning_div.text
+        
+    def _fetch_is_bolded(self):
+        if overall_text := self._soup.find(class_="page_section").find("a", string="overall"):
+            overall_number = int(overall_text.find_previous_sibling().replace(",",""))
+            return overall_number <= 7500
+        return False
         
     def __str__(self):
         return self.title
