@@ -779,6 +779,8 @@ class Release:
         self._lists = None
         self.id = self._fetch_id()
         self.is_nazi = self._fetch_is_nazi()
+        self.year_postion = self._fetch_year_position()
+        self.overall_position = None
         self.is_bolded = self._fetch_is_bolded()
 
     class Lists(EntryCollection):
@@ -1169,10 +1171,15 @@ class Release:
         if warning_div := self._soup.find(class_="warning"):
             return "Nazi" in warning_div.text
         
+    def _fetch_year_position(self):
+        if year_text := self._soup.find(class_="page_section").find(string="Ranked"):
+            return int(year_text.find_next_sibling().find("b").text.replace(",",""))
+        
     def _fetch_is_bolded(self):
         if overall_text := self._soup.find(class_="page_section").find("a", string="overall"):
-            overall_number = int(overall_text.find_previous_sibling().replace(",",""))
-            return overall_number <= 7500
+            overall_position = int(overall_text.find_previous_sibling("b").text.replace(",",""))
+            self.overall_position = overall_position
+            return overall_position <= 7500
         return False
         
     def __str__(self):
