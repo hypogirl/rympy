@@ -3,3 +3,6 @@ todo
 rympy/rympy.egg-info/
 rympy/rympy/__pycache__/
 rympy/build/
+rympy/build/lib/rympy/base_classes.py
+rympy/build/lib/rympy/rym.py
+rympy/rympy/base_classes.py
