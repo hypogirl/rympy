@@ -875,7 +875,7 @@ class Release:
     
     def _fetch_average_rating(self):
         if average_rating_elem := self._soup.find("span", class_="avg_rating"):
-            return average_rating_elem.text.strip()
+            return float(average_rating_elem.text.strip())
         
     def _fetch_number_of_ratings(self):
         if num_ratings_elem := self._soup.find("span", class_="num_ratings"):
@@ -926,7 +926,7 @@ class Release:
     
     def _fetch_descriptors(self):
         if descriptors := self._soup.find("span", class_="release_pri_descriptors"):
-            return descriptors.text.split(", ")
+            return descriptors.text.split(",  ")
 
     def _fetch_cover_url(self):
         release_cover_elem = self._soup.find("img")
