@@ -18,12 +18,12 @@ class EntryCollection:
         self.current_page = 1
         self.max_page = self._fetch_max_page(pages_class)
         if self.current_page > self.max_page:
-            raise NoContent("This release has no lists.")
+            raise NoContent("This collection has no entries.")
         self.entries = self._fetch_entries(init=True)
 
     def _fetch_max_page(self, pages_class):
         try:
-            return int(self._soup.find_all("a", class_=pages_class)[-1].text)
+            return int(self._soup.find_all(class_=pages_class)[-1].text)
         except IndexError:
             return 0
         
@@ -46,12 +46,16 @@ class EntryCollection:
         return self._specific_fetch()
 
 class SimpleEntity:
-    def __init__(self, *, name=None, title=None, url=None) -> None:
-        self.title = name or title
+    def __init__(self, *, name=None, title=None, username=None, url=None) -> None:
+        self.title = name or title or username
         self.url = url
 
     @property
     def name(self):
+        return self.title
+    
+    @property
+    def username(self):
         return self.title
 
     def __str__(self):

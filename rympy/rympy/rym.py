@@ -1,5 +1,6 @@
 import requests
 import re
+import csv
 from datetime import datetime
 from datetime import timedelta
 from typing import List
@@ -45,7 +46,7 @@ class Chart(EntryCollection):
         if isinstance(self.release_types, list):
             release_types_str = ','.join(self.release_types)
        
-        url = f"https://rateyourmusic.com/charts/{self.type}/{release_types_str or self.release_types}"
+        url = f"{ROOT_URL}/charts/{self.type}/{release_types_str or self.release_types}"
 
         if self.year_range:
             url += f"/{self.year_range.min}-{self.year_range.max}/"
@@ -105,8 +106,10 @@ class Genre:
             self._url_name = name.replace(' ', '-').lower()
         else:
             self._url_name = url.split("/")[-2]
-        self.url = url or f"https://rateyourmusic.com/genre/{self._url_name}/"
+        self.url = url or f"{ROOT_URL}/genre/{self._url_name}/"
         self._cached_rym_response = requests.get(self.url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -230,7 +233,7 @@ class Genre:
         rym_lists = self._soup.find_all(class_="page_section_lists_list")
         return [SimpleRYMList(title=rym_list.find(class_="main").text.replace("\n","").strip(),
                               url=ROOT_URL+rym_list.find(class_="main").find("a")["href"],
-                              author=SimpleUser(name=rym_list.find_all(class_="page_section_lists_list_main_line")[1].find("a").text,
+                              author=SimpleUser(username=rym_list.find_all(class_="page_section_lists_list_main_line")[1].find("a").text,
                                                 url=ROOT_URL+rym_list.find_all(class_="page_section_lists_list_main_line")[1].find("a")["href"])
                               ) for rym_list in rym_lists]
 
@@ -250,6 +253,8 @@ class Artist:
             else:
                 url = ROOT_URL + "/artist/" + name.replace(" ", "-").lower()
         self._cached_rym_response = requests.get(url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -581,6 +586,8 @@ class Artist:
     def _fetch_credits(self):
         credits_url = (self.url + "/credits/").replace("//", "/")
         credits_response = requests.get(credits_url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if credits_response.status_code != 200:
             raise RequestFailed(f"Credits request failed with status code {self._cached_rym_response.status_code}")
         credits_soup = bs4.BeautifulSoup(credits_response.content, "html.parser")
@@ -619,6 +626,8 @@ class Distributor:
     def __init__(self, url) -> None:
         self.url = url
         self._cached_rym_response = requests.get(url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -650,6 +659,8 @@ class Label:
     def __init__(self, url) -> None:
         self.url = url
         self._cached_rym_response = requests.get(url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}.")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -752,6 +763,8 @@ class Release:
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
     def __init__(self, url) -> None:
         self._cached_rym_response = requests.get(url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -779,7 +792,7 @@ class Release:
         self._lists = None
         self.id = self._fetch_id()
         self.is_nazi = self._fetch_is_nazi()
-        self.year_postion = self._fetch_year_position()
+        self.year_position = self._fetch_year_position()
         self.overall_position = None
         self.is_bolded = self._fetch_is_bolded()
 
@@ -975,6 +988,7 @@ class Release:
                                 bandcamp=release_links["bandcamp"],
                                 soundcloud=release_links["soundcloud"],
                                 apple_music=release_links["applemusic"])
+        return ReleaseLinks()
         
     def _fetch_tracks(self):
         tracks_elem = self._soup.find(id="tracks")
@@ -1097,7 +1111,7 @@ class Release:
     def _fetch_id(self):
         id_elem = self._soup.find("input", class_="album_shortcut")
         try:
-            return id_elem["value"][1:-1]
+            return ''.join(re.findall(r'\d+', id_elem["value"]))
         except TypeError:
             raise ParseError("No ID was found for this release.")
         
@@ -1173,7 +1187,7 @@ class Release:
         
     def _fetch_year_position(self):
         if year_text := self._soup.find(class_="page_section").find(string="Ranked"):
-            return int(year_text.find_next_sibling().find("b").text.replace(",",""))
+            return int(year_text.find_next_sibling().find("b").text.replace(",","").replace("#",""))
         
     def _fetch_is_bolded(self):
         if overall_text := self._soup.find(class_="page_section").find("a", string="overall"):
@@ -1189,7 +1203,7 @@ class Release:
         return f"{self.type}: {','.join([artist.name for artist in self.artists])} - {self.title}"
 
     def __eq__(self, other):
-        return self.url == other.url
+        return self.url == other.url or self.id == other.id
     
 class ReleaseIssue(Release):
     def __init__(self, url) -> None:
@@ -1209,6 +1223,26 @@ class ReleaseIssue(Release):
             if (ROOT_URL + issue.find("a")["href"]) == self.url:
                 return issue
 
+class Rating:
+    def __init__(self, *, id=None, first_name="", last_name="", first_name_localized="", 
+                 last_name_localized="", title=None, release_year=None, rating=None, 
+                 ownership=None, purchase_date=None, media_type=None, review=None, url=None, release=None) -> None:
+        self.id = id
+        self.artist_name = (first_name + " " + last_name).strip()
+        self.artist_name_localized = (first_name_localized + " " + last_name_localized).strip()
+        self.title = title
+        self.release_year = release_year
+        self.rating = rating
+        self.ownership = ownership
+        self.purchase_date = purchase_date
+        self.media_type = media_type
+        self.review = review
+        self.url = url
+        self.release = release
+
+    def __eq__(self, other) -> bool:
+        return self.id == other.id or (self.url and len(self.url) and self.url == other.url)
+
 class User:
     def __init__(self, *, username=None, url=None) -> None:
         self.username = username or re.search(r"[\w+|_]+$", url).group()
@@ -1216,16 +1250,17 @@ class User:
             raise NoURL("No valid username or URL provided.")
         self.url = url or f"{ROOT_URL}/~{username}"
         self._cached_rym_response = requests.get(self.url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
         self.favorite_artists = self._fetch_favorite_artists()
+        self.other_comments = self._fetch_other_comments()
         self.recently_online_friends = self._fetch_recently_online_friends()
         self._friends = None
-        self.ratings = self.RatingCollection()
-
-    class RatingCollection(EntryCollection):
-        pass
+        self.recent_ratings = self._fetch_recent_ratings()
+        self.ratings = list()
 
     @property
     def favourite_artists(self):
@@ -1236,36 +1271,94 @@ class User:
         if not self._friends:
             self._friends = self._fetch_friends()
         return self._friends
+
+    def add_rating(self, rating):
+            if not self.ratings:
+                self.ratings = list()
+            if rating not in self.ratings:
+                self.ratings.append(rating)
+            else:
+                old_rating = self.ratings[self.ratings.index(rating)]
+                old_rating.rating = rating.rating
+                old_rating.release = rating.release
+                self.ratings[self.ratings.index(rating)] = old_rating
+
+    def import_ratings(self, *, url=None, filename=None, replace=False):
+        if filename:
+            with open(filename, 'r', encoding="utf-8") as file:
+                ratings_proto = list(csv.DictReader(file))
+        elif url:
+            response = requests.get(url)
+            if response.status_code != 200:
+                raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            ratings_proto = list(csv.DictReader(response.text.splitlines()))
+        else:
+            raise NoURL("Provide a filename or an URL.")
+        ratings = [Rating(
+                    id=row["RYM Album"],
+                    first_name=row[" First Name"],
+                    last_name=row["Last Name"],
+                    first_name_localized=row["First Name localized"],
+                    last_name_localized=row[" Last Name localized"],
+                    title=row["Title"],
+                    release_year=int(row["Release_Date"]) if row["Release_Date"] else None,
+                    rating=int(row["Rating"])/2 if row["Rating"] != "" else None,
+                    ownership=row["Ownership"],
+                    purchase_date=row["Purchase Date"],
+                    media_type=row["Media Type"],
+                    review=row.get(" Review")
+                ) for row in ratings_proto]
+        if replace:
+            self.ratings = list()
+        for rating in ratings:
+            self.add_rating(rating)
     
     def _fetch_favorite_artists(self):
         title_elem = self._soup.find(class_="bubble_header", string="favorite artists")
         if not title_elem:
             return None
-        fav_artists_elem = title_elem.next_sibling.contents[1].contents[1]
-        return [SimpleArtist(name=artist_elem.text.lstrip(),
-                             url=ROOT_URL + artist_elem["href"])
-                             for artist_elem in fav_artists_elem
-                             if artist_elem.name == "a" and artist_elem.get("title") and artist_elem["title"].startswith("[Artist")]
+        fav_artists_elem = title_elem.find_next_sibling().contents[1].contents[1]
+        return [SimpleArtist(name= artist.text, url= artist["href"])
+                for artist in fav_artists_elem.find_all("a") if artist.get("title") and artist["title"].startswith("[Artist")]
     
     def _fetch_recently_online_friends(self):
         friends_elem = self._soup.find(id="ftabfriends")
         if not friends_elem:
             return None
-        return [SimpleUser(name= friend.text) for friend in friends_elem.find_all("td")]
+        return [SimpleUser(username= friend.text) for friend in friends_elem.find_all("td")]
     
     def _fetch_friends(self):
         friends_url = self.url.replace("~", "friends/")
         friends_request = requests.get(friends_url, headers= HEADERS)
+        if friends_request.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         friends_soup = bs4.BeautifulSoup(friends_request.content, "html.parser")
         friends_elem = friends_soup.find_all(class_="or_card_frame_inner")
         if friends_elem:
-            return [SimpleUser(name= friend.text.replace("\n   \n","")) for friend in friends_elem]
+            return [SimpleUser(username= friend.text.replace("\n   \n","")) for friend in friends_elem]
+        
+    def _fetch_other_comments(self):
+        if title_elem := self._soup.find(class_="bubble_header", string="other comments"):
+            other_comments_elem = title_elem.find_next_sibling()
+            return {
+                "text": other_comments_elem.text,
+                "artists": [SimpleArtist(name= artist.text, url= artist["href"])
+                            for artist in other_comments_elem.find_all("a") if artist.get("title") and artist["title"].startswith("[Artist")]
+                    }
+        
+    def _fetch_recent_ratings(self):
+        recent_ratings_elem = self._soup.find(id="musicrecent").find_all("tr")[:-1]
+        return [SimpleRelease(title= release.find(class_="album").text,
+                              artist_name= release.find(class_="artist").text,
+                              url= ROOT_URL+release.find(class_="album")["href"]) for release in recent_ratings_elem]
         
 class RYMList(EntryCollection):
     def __init__(self, url) -> None:
         self.init_url = url
         self.current_url = self.init_url
         self._cached_rym_response = requests.get(self.init_url, headers= HEADERS)
+        if self._cached_rym_response.status_code == 503:
+            raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
         if self._cached_rym_response.status_code != 200:
             raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
         self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -1309,6 +1402,8 @@ class Review:
         self.release = release
         if request_needed:
             self._cached_rym_response = requests.get(url, headers= HEADERS)
+            if self._cached_rym_response.status_code == 503:
+                raise RateLimit("You're rate limited from RateYourMusic. I suggest opening the website in a browser, solving the CAPTCHA and waiting 15 minutes before creating a new object.")
             if self._cached_rym_response.status_code != 200:
                 raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
             self._soup = bs4.BeautifulSoup(self._cached_rym_response.content, "html.parser")
@@ -1427,6 +1522,51 @@ class SimpleRYMList(SimpleEntity):
         return RYMList(self.url)
     
 class SimpleUser(SimpleEntity):
+    def __init__(self, *, username=None, url=None, ratings=None) -> None:
+        super().__init__(name=username, url=url)
+        self.ratings = ratings
+
+    def import_ratings(self, *, url=None, filename=None, replace=False):
+        if filename:
+            with open(filename, 'r', encoding="utf-8") as file:
+                ratings_proto = list(csv.DictReader(file))
+        elif url:
+            response = requests.get(url)
+            if response.status_code != 200:
+                raise RequestFailed(f"Initial request failed with status code {self._cached_rym_response.status_code}")
+            ratings_proto = list(csv.DictReader(response.text.splitlines()))
+        else:
+            raise NoURL("Provide a filename or an URL.")
+        
+        ratings = [Rating(
+                    id=row["RYM Album"],
+                    first_name=row[" First Name"],
+                    last_name=row["Last Name"],
+                    first_name_localized=row["First Name localized"],
+                    last_name_localized=row[" Last Name localized"],
+                    title=row["Title"],
+                    release_year=int(row["Release_Date"]) if row["Release_Date"] else None,
+                    rating=int(row["Rating"])/2 if row["Rating"] != "" else None,
+                    ownership=row["Ownership"],
+                    purchase_date=row["Purchase Date"],
+                    media_type=row["Media Type"],
+                    review=row.get(" Review")
+                ) for row in ratings_proto]
+
+        if replace:
+            self.ratings = list()
+        
+        for rating in ratings:
+            self.add_rating(rating)
+
+    def add_rating(self, rating):
+            if not self.ratings:
+                self.ratings = list()
+            if rating not in self.ratings:
+                self.ratings.append(rating)
+            elif rating.release:
+                self.ratings[self.ratings.index(rating)] = rating
+
     def get_user(self):
         return User(username=self.name, url=self.url)
     

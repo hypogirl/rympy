@@ -9,3 +9,6 @@ class RequestFailed(Exception):
 
 class NoContent(Exception):
     pass
+
+class RateLimit(Exception):
+    pass
