@@ -19,7 +19,7 @@ class EntryCollection:
         self.max_page = self._fetch_max_page(pages_class)
         if self.current_page > self.max_page:
             raise NoContent("This collection has no entries.")
-        self.entries = self._fetch_entries(init=True)
+        self.entries = [self._fetch_entries(init=True)]
 
     def _fetch_max_page(self, pages_class):
         try:
@@ -30,7 +30,7 @@ class EntryCollection:
     def load_more_entries(self):
         self.current_page += 1
         self.current_url = re.sub(r"\d+\/$", f"{self.current_page}/", self.current_url)
-        self.entries += self._fetch_entries()
+        self.entries.append(self._fetch_entries())
         return self
     
     def _fetch_entries(self, init=False):
