@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import List
 import json
 import bs4
+import ast
 from ratelimit import limits, sleep_and_retry
 from .enums import *
 from .exceptions import *
@@ -15,7 +16,7 @@ from .base_classes import *
 class Chart(EntryCollection):
     @sleep_and_retry
     @limits(calls=CALL_LIMIT, period=RATE_LIMIT)
-    def __init__(self, *, type, release_types,
+    def __init__(self, *, type=ChartType.top, release_types=None, release_type=None,
                  year_range=None, primary_genres=None,
                  secondary_genres=None, primary_genres_excluded=None,
                  secondary_genres_excluded=None, locations=None,
@@ -24,7 +25,7 @@ class Chart(EntryCollection):
                  descriptors_excluded=None, include_subgenres=True,
                  contain_all_genres=False) -> None:
         self.type = type
-        self.release_types = release_types
+        self.release_types = release_types or [release_type] if release_type else [ReleaseType.album]
         self.year_range = year_range
         self.primary_genres = primary_genres
         self.secondary_genres = secondary_genres
@@ -201,7 +202,7 @@ class Genre:
         
     def _fetch_akas(self):
         if aka_elems := self._soup.find_all("bdi", class_="comma_separated"):
-            return [aka.text for aka in aka_elems]
+            return [aka.text.strip() for aka in aka_elems]
         
     def _fetch_parent_genres(self):
         parent_elems = self._soup.find_all("li", class_="hierarchy_list_item parent")
@@ -310,7 +311,10 @@ class Artist:
                                 2: "%B %Y",
                                 3: "%d %B %Y"}
                 
-                date = datetime.strptime(date_text, date_formating[date_components_count])
+                if not date_text:
+                    date = None
+                else:
+                    date = datetime.strptime(date_text, date_formating[date_components_count])
 
             artist_name = self.artist.name
             artists = [self.artist]
@@ -332,7 +336,7 @@ class Artist:
                                  release_date=date,
                                  number_of_ratings=release.find(class_="disco_ratings").text or None,
                                  number_of_reviews=release.find(class_="disco_reviews").text or None,
-                                 average_rating=(lambda x: float(x.text) if x else None)(release.find(class_="disco_avg_rating")))
+                                 average_rating=(lambda x: float(x.text) if x and x.text else None)(release.find(class_="disco_avg_rating")))
 
     class ReleaseCollection(GeneralCollection):
         def initialize_attributes(self):
@@ -476,8 +480,8 @@ class Artist:
     def _fetch_gen_date_location(self, *titles):
         for title in titles:
             if (date_location_elem := self._soup.find("div", class_="info_hdr", string=title)):
-                location = self._fetch_location(date_location_elem)
                 date_location_info = date_location_elem.find_next_sibling()
+                location = self._fetch_location(date_location_info)
                 if date_location_info.contents[0].name != "a":
                     date_text = date_location_info.contents[0].strip()[:-1]
                     date_components_count = date_text.count(" ") + 1
@@ -505,7 +509,9 @@ class Artist:
     
     def _fetch_current_location(self):
         if (date_location_elem := self._soup.find("div", class_="info_hdr", string="Currently")):
-            return date_location_elem.find_next_sibling().text
+            date_location_info = date_location_elem.find_next_sibling()
+            location = self._fetch_location(date_location_info)
+            return location
 
 
     def _fetch_genres(self):
@@ -537,8 +543,8 @@ class Artist:
                     elif period:
                         years_active_list.append(period)
                 
-                instruments_list = instruments_list or None
-                years_active_list = years_active_list or None
+                instruments_list = instruments_list
+                years_active_list = years_active_list
                 aka = aka or None
                 members.append(BandMember(name=name, instruments=instruments_list, years_active=years_active_list, url=url, aka=aka))
             
@@ -566,9 +572,9 @@ class Artist:
     def _fetch_member_of(self):
         if member_of_div := self._soup.find("div", class_="info_hdr", string="Member of"):
             member_of = member_of_div.find_next_sibling()
-            all_artists = member_of.split(", ")
+            all_artists = member_of.text.split(", ")
             artist_elems = member_of.find_all("a")
-            return [SimpleArtist(name=artist.text, url=artist["href"])
+            return [SimpleArtist(name=artist.text, url=ROOT_URL + artist["href"])
                     for artist in artist_elems] + [artist for artist in all_artists if artist not in
                                                    [artist.text for artist in artist_elems]]
         
@@ -781,6 +787,7 @@ class Release:
         self.primary_genres = self._fetch_primary_genres()
         self.secondary_genres = self._fetch_secondary_genres()
         self.descriptors = self._fetch_descriptors()
+        self.languages = self._fetch_languages()
         self.cover_url = self._fetch_cover_url()
         self.links = self._fetch_release_links()
         self.tracklist = self._fetch_tracks()
@@ -795,6 +802,7 @@ class Release:
         self.year_position = self._fetch_year_position()
         self.overall_position = None
         self.is_bolded = self._fetch_is_bolded()
+        self.rating_distribution = self._fetch_rating_distribution()
 
     class Lists(EntryCollection):
         def __init__(self, url):
@@ -882,7 +890,7 @@ class Release:
     def _fetch_artist_name(self):
         outer_elem = self._soup.find("span", {"itemprop":"byArtist"})
         if collab_name := outer_elem.find(class_="credited_name"):
-            return collab_name.text
+            return collab_name.find("span").text
         else:
             return outer_elem.text
     
@@ -941,6 +949,9 @@ class Release:
         if descriptors := self._soup.find("span", class_="release_pri_descriptors"):
             return descriptors.text.split(",  ")
 
+    def _fetch_languages(self):
+        return [{"language": language.lower(), "code": getattr(Language, language.lower(), None)} for language in self._soup.find(style="font-size:0.9em;color:var(--mono-5);").text.split(", ")]
+    
     def _fetch_cover_url(self):
         release_cover_elem = self._soup.find("img")
         try:
@@ -999,7 +1010,7 @@ class Release:
 
         for track in tracks_elem.find_all("div", {"itemprop":"track"}):
             track_number = track.find("span", class_="tracklist_num").text.replace("\n","").replace(" ", "")
-            track_title = track.find("span", class_="tracklist_title").text
+            track_title = track.find("span", class_="tracklist_title").text.replace("\n","")
             track_length = timedelta(seconds=int(track.find("span", class_="tracklist_title").contents[1]["data-inseconds"]))
             tracks.append(Track(number=track_number, title=track_title, length=track_length, simple_release=SimpleRelease(title=self.title,
                                                                                                                           url=self.url)))
@@ -1071,7 +1082,9 @@ class Release:
                     for track in role.tracks:
                         try:
                             if self.tracklist and track in self.tracklist:
-                                track.credited_artists = credited_artist
+                                if not track.credited_artists:
+                                    track.credited_artists = list()
+                                track.credited_artists.append(credited_artist)
                                 new_tracks.append(track)
                                 self.tracklist[self.tracklist.index(track)] = track
                         except AttributeError:
@@ -1195,6 +1208,12 @@ class Release:
             self.overall_position = overall_position
             return overall_position <= 7500
         return False
+    
+    def _fetch_rating_distribution(self):
+        try:
+            return {rating[0]:rating[1] for rating in list(ast.literal_eval(re.search(r'data\.addRows\(\[\n +(.*?)\n +\]\);',self._cached_rym_response.text).group(1)))}
+        except:
+            return None
         
     def __str__(self):
         return self.title
@@ -1564,8 +1583,10 @@ class SimpleUser(SimpleEntity):
                 self.ratings = list()
             if rating not in self.ratings:
                 self.ratings.append(rating)
-            elif rating.release:
+            if rating.release:
                 self.ratings[self.ratings.index(rating)] = rating
+                
+            self.ratings[self.ratings.index(rating)].rating = rating.rating
 
     def get_user(self):
         return User(username=self.name, url=self.url)
